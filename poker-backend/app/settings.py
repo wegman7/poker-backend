@@ -29,20 +29,23 @@ SECRET_KEY = "django-insecure-7h)&4a0-1fl&+88+#axw^byqll9d=9iviunmt#snd1ebkpv$#h
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
+    # "app.asgi.application",
+    # "poker",
+    "app",
+    "rest_framework",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
-    "django.contrib.staticfiles",
-    "rest_framework",
-    "app"
+    "django.contrib.staticfiles"
 ]
 
 MIDDLEWARE = [
@@ -56,6 +59,7 @@ MIDDLEWARE = [
     "app.middleware.JsonExceptionMiddleware",
 ]
 
+# ROOT_URLCONF = "app.asgi.application"
 ROOT_URLCONF = "app.urls"
 
 TEMPLATES = [
@@ -74,7 +78,8 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "app.wsgi.application"
+# WSGI_APPLICATION = "app.wsgi.application"
+ASGI_APPLICATION = "app.asgi.application"
 
 
 # Database
