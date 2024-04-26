@@ -36,8 +36,7 @@ ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     "daphne",
-    # "app.asgi.application",
-    # "poker",
+    "poker",
     "app",
     "rest_framework",
     "django.contrib.admin",
@@ -59,8 +58,7 @@ MIDDLEWARE = [
     "app.middleware.JsonExceptionMiddleware",
 ]
 
-# ROOT_URLCONF = "app.asgi.application"
-ROOT_URLCONF = "app.urls"
+# ROOT_URLCONF = "app.urls"
 
 TEMPLATES = [
     {
@@ -78,7 +76,6 @@ TEMPLATES = [
     },
 ]
 
-# WSGI_APPLICATION = "app.wsgi.application"
 ASGI_APPLICATION = "app.asgi.application"
 
 

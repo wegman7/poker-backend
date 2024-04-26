@@ -79,3 +79,22 @@ class Auth0Authentication(BaseAuthentication):
     def authenticate(self, request):
         token = get_request_token(request, mutate_request=True)
         return (token, None) if token is not None else (None, None)
+
+
+def get_request_token_websocket(bearer_token) -> Optional[RequestToken]:
+    if bearer_token and bearer_token.startswith("Bearer "):
+        token_str = bearer_token.partition(" ")[2]
+        token = RequestToken(token_str)
+        return token
+    return None
+
+class Auth0AuthenticationWebsocket:
+    def __init__(self, app):
+        # Store the ASGI application we were passed
+        self.app = app
+    
+    async def __call__(self, scope, receive, send):
+        bearer_token =  scope['headers'][6][1].decode()
+        scope['user'] = get_request_token_websocket(bearer_token)
+
+        return await self.app(scope, receive, send)

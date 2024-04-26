@@ -1,2 +1,6 @@
 https://github.com/auth0-samples/auth0-react-samples/tree/master/Sample-01/src
 https://github.com/auth0-samples/auth0-django-api
+
+
+- add error handling for expired tokens
+- create groups in consumer
