@@ -81,7 +81,10 @@ class Auth0Authentication(BaseAuthentication):
         return (token, None) if token is not None else (None, None)
 
 
-def get_request_token_websocket(bearer_token) -> Optional[RequestToken]:
+def get_request_token_websocket(scope) -> Optional[RequestToken]:
+    headers = dict(scope['headers'])
+    bearer_token_bytes = headers.get(b'authorization', None)
+    bearer_token = bearer_token_bytes.decode() if bearer_token_bytes else None
     if bearer_token and bearer_token.startswith("Bearer "):
         token_str = bearer_token.partition(" ")[2]
         token = RequestToken(token_str)
@@ -94,7 +97,7 @@ class Auth0AuthenticationWebsocket:
         self.app = app
     
     async def __call__(self, scope, receive, send):
-        bearer_token =  scope['headers'][6][1].decode()
-        scope['user'] = get_request_token_websocket(bearer_token)
+        bearer_token =  get_request_token_websocket(scope)
+        scope['user'] = bearer_token
 
         return await self.app(scope, receive, send)

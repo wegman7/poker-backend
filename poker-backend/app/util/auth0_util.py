@@ -31,10 +31,7 @@ def get_mang_token():
 
     return token
 
-def get_user_token():
-    username = 'wegman7@gmail.com'
-    password = 'Jfg717jw7!@#'
-
+def get_user_token(username, password):
     # don't need client secret for user login
     url = f'{auth0_domain}/oauth/token'
     headers = {'Content-Type': 'application/json'}
