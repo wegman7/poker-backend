@@ -23,7 +23,6 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         }
         self.websocket_admin = await websockets.connect(uri_room1, extra_headers=extra_headers)
 
-
         extra_headers = {
             "Authorization": f"Bearer {user1_token}"
         }
@@ -50,6 +49,11 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         response2 = json.loads(await self.websocket_user1.recv())
         assert(response['message'] == 'broadcasting to chat group...')
         assert(response2['message'] == 'broadcasting to chat group...')
+    
+    async def test_start_game(self):
+        await self.websocket_admin.send(json.dumps({'command': "start_game"}))
+        response = json.loads(await self.websocket_admin.recv())
+        print(response)
 
     async def test_bogus_command(self):
         await self.websocket_admin.send(json.dumps({'command': "bogus"}))
