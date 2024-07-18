@@ -6,3 +6,5 @@ https://github.com/auth0-samples/auth0-django-api
 - create groups in consumer
 
 - need to use redis (add to settings.py) to access self.channel_layers 
+
+# need to remake tests for game_engine

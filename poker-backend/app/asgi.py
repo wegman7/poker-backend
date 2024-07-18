@@ -19,8 +19,8 @@ application = ProtocolTypeRouter(
         "websocket": AllowedHostsOriginValidator(
             Auth0AuthenticationWebsocket(URLRouter(websocket_urlpatterns))
         ),
-        "channel": ChannelNameRouter({
-            "start-game-engine": consumers.GameConsumer.as_asgi(),
-        }),
+        # "channel": ChannelNameRouter({
+        #     "start-game-engine": consumers.GameConsumer.as_asgi(),
+        # }),
     }
 )
