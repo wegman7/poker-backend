@@ -7,4 +7,4 @@ https://github.com/auth0-samples/auth0-django-api
 
 - need to use redis (add to settings.py) to access self.channel_layers 
 
-# need to remake tests for game_engine
+# start making game_engine by adding basic user actions such as join, leave, sit in, sit out. we can start on the actual game actions later

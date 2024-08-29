@@ -1,26 +1,28 @@
 import asyncio
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+import websockets
+
 from poker.game_engine import GameEngine
 
-game_engines = {}
-
 class PlayerConsumer(AsyncJsonWebsocketConsumer):
-    async def connect(self):
-        user = self.scope['user']
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.engines = {}
 
+    async def connect(self):
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
         await self.channel_layer.group_add(self.room_name, self.channel_name)
 
         await self.accept()
     
     async def receive_json(self, event):
-        command = event.get('command')
+        command = event.get('channel_command')
         
         handler = self.command_handlers.get(command, self.handle_unknown_type)
         await handler(event)
     
     async def handle_unknown_type(self, event):
-        message = event.get('command') + ' is not a valid command!'
+        message = event.get('channel_command') + ' is not a valid command!'
 
         await self.send_json({
             'error': message
@@ -51,16 +53,27 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
     async def player_send_message(self, event):
         await self.send_json(event)
     
-    async def start_game(self, event):
+    async def start_game_engine(self, event):
         event['room_name'] = self.room_name
-        if self.room_name not in game_engines:
-            game_engines[self.room_name] = GameEngine(self.room_name)
-        asyncio.create_task(game_engines[self.room_name].start(event))
+        if self.room_name not in self.engines:
+            self.engines[self.room_name] = GameEngine(self.room_name)
+        asyncio.create_task(self.engines[self.room_name].run(event))
+
+        event['room_name'] = self.room_name
+        uri = f'ws://localhost:8080/ws?room_name=myroomname'
+
+        extra_headers = {
+            "Authorization": f"Bearer some-bogus-token"
+        }
+        self.ws_user1 = await websockets.connect(uri, extra_headers=extra_headers)
     
-    async def poker_action(self, event):
+    async def make_game_command(self, event):
         event['channel_name'] = self.channel_name
         event['user'] = self.scope['user'].get_user()
-        await game_engines[self.room_name].make_action(event)
+        await self.engines[self.room_name].queue_game_command(event)
+    
+    async def stop_game_engine(self, event):
+        await self.engines[self.room_name].stop(event)
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
@@ -70,8 +83,9 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         return {
             'send_message_channel': self.send_message_channel,
             'send_message_group': self.send_message_group,
-            'start_game': self.start_game,
-            'poker_action': self.poker_action
+            'start_game_engine': self.start_game_engine,
+            'make_game_command': self.make_game_command,
+            'stop_game_engine': self.stop_game_engine
         }
 
 # class GameConsumer(AsyncJsonWebsocketConsumer):
