@@ -1,24 +1,16 @@
 import asyncio
 import json
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
-import websockets
-
-from poker.game_engine import GameEngine
-
-engines = {}
+import requests
 
 class PlayerConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
         await self.channel_layer.group_add(self.room_name, self.channel_name)
-
         await self.accept()
     
     async def receive_json(self, event):
         command = event.get('channelCommand')
-        print('command: ', command)
-        print('event: ', event)
-        
         handler = self.command_handlers.get(command, self.handle_unknown_type)
         await handler(event)
     
@@ -33,7 +25,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.send(
             self.channel_name,
             {
-                "type": "player.send_message",
+                "type": "send.message",
                 'message': 'broadcasting to player channel...',
                 'recipient': 'channel',
                 'event': event
@@ -44,45 +36,36 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_send(
             self.room_name,
             {
-                "type": "player.send_message",
+                "type": "send.message",
                 "message": "broadcasting to player group...",
                 'recipient': 'group',
                 'event': event
             }
         )
     
-    async def player_send_message(self, event):
+    async def send_message(self, event):
+        print('HERE', event)
         await self.send_json(event)
     
     async def start_engine(self, event):
         event['room_name'] = self.room_name
-        uri = f'ws://localhost:8080/ws/{self.room_name}?bigBlind=2'
-
-        if self.room_name not in engines:
-            engines[self.room_name] = await websockets.connect(uri, ping_interval=None)
-            # Start listening for messages from the Go server
-            asyncio.create_task(self.listen_to_go_server())
-        else:
-            raise Exception("Already started game engine for this room!")
-
+        response = requests.post(
+            "http://localhost:8080/start-engine",
+            json={"roomName": self.room_name, "smallBlind": 1, "bigBlind": 2},
+        )
     
     async def make_engine_command(self, event):
-        event['room_name'] = self.room_name
         event['user'] = self.scope['user'].get_user()
-        await engines[self.room_name].send(json.dumps(event))
+        await self.channel_layer.group_send(
+            self.room_name + '-engine',
+            {
+                "type": "send.message",
+                'event': event
+            }
+        )
 
-
-    async def listen_to_go_server(self):
-        # Listen for messages from the Go game engine and forward to the client
-        try:
-            async for message in engines['ce74cf3f']:
-                print('message from engine: ', message)
-        except websockets.exceptions.ConnectionClosed:
-            print("Go engine connection closed")
-    
     async def stop_engine(self, event):
-        await engines[self.room_name].close()
-        del engines[self.room_name]
+        pass
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
@@ -97,15 +80,36 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
             'stopEngine': self.stop_engine
         }
 
-# class GameConsumer(AsyncJsonWebsocketConsumer):
-#     # def __init__(self):
-#     #     print('in init in pokerconsumer')
+class EngineConsumer(AsyncJsonWebsocketConsumer):
+    async def connect(self):
+        self.room_name = self.scope["url_route"]["kwargs"]["room_name"] + '-engine'
+        print('starting engine with room_name:', self.room_name, '...')
+        await self.channel_layer.group_add(self.room_name, self.channel_name)
+        await self.accept()
     
-#     async def start(self, event):
-#         print(self.channel_name)
-#         # asyncio.create_task(self.game_loop())
+    async def receive_json(self, event):
+        command = event.get('channelCommand')
+        handler = self.command_handlers[command]
+        await handler(event)
+
+    async def send_state(self, event):
+        await self.channel_layer.group_send(
+            self.room_name.replace('-engine', ''),
+            {
+                "type": "send.message",
+                "message": "broadcasting state...",
+                'event': event
+            }
+        )
     
-#     async def game_loop(self):
-#         while True:
-#             print('game loop..')
-#             await asyncio.sleep(1)
+    async def send_message(self, event):
+        await self.send_json(event['event'])
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.room_name, self.channel_name)
+
+    @property
+    def command_handlers(self):
+        return {
+            'sendState': self.send_state,
+        }
