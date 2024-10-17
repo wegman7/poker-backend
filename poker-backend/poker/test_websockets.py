@@ -6,6 +6,7 @@ import uuid
 from unittest import IsolatedAsyncioTestCase
 import websockets
 import requests
+from pprint import pprint
 
 from app.util.auth0_util import  get_user_token
 
@@ -55,23 +56,23 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'channelCommand': "startEngine",
             'bigBlind': 2,
         }))
-        await asyncio.sleep(1)
+        # await asyncio.sleep(1)
         await self.websocket_admin.send(json.dumps({
+            'channelCommand': "makeEngineCommand",
+            'engineCommand': 'join',
+            'seatId': 5,
+        }))
+        # await asyncio.sleep(1)
+        await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'join',
             'seatId': 0,
         }))
-        await asyncio.sleep(1)
-        # await self.websocket_user1.send(json.dumps({
-        #     'channelCommand': "makeEngineCommand",
-        #     'engineCommand': 'join',
-        #     'seatId': 0,
-        # }))
-        # for i in range(5):
-        #     response_admin = json.loads(await self.websocket_admin.recv())
-        #     response_user1 = json.loads(await self.websocket_user1.recv())
-        #     print('response_admin: ', response_admin)
-        #     print('response_user1: ', response_user1)
+        for i in range(1):
+            response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
+            response_user1 = json.dumps(json.loads(await self.websocket_user1.recv()), indent=4)
+            print(response_admin)
+            print(response_user1)
 
     #     response_admin = json.loads(await self.websocket_admin.recv())
     #     response_user1 = json.loads(await self.websocket_user1.recv())
@@ -81,7 +82,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': "stopEngine",
-            'seatId': 0,
+            'seatId': 5,
         }))
     
     async def asyncTearDown(self):
