@@ -1,7 +1,5 @@
-import asyncio
-import json
-from channels.generic.websocket import AsyncJsonWebsocketConsumer
 import requests
+from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 class PlayerConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
@@ -44,7 +42,6 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         )
     
     async def send_message(self, event):
-        print('HERE', event)
         await self.send_json(event)
     
     async def start_engine(self, event):
