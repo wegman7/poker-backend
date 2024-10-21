@@ -52,33 +52,77 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
     #     assert(response2['recipient'] == 'group')
     
     async def test_join_game(self):
+        await asyncio.sleep(1)
+        # start engine
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "startEngine",
             'bigBlind': 2,
         }))
-        # await asyncio.sleep(1)
+        await asyncio.sleep(1)
+
+        # join game
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'join',
             'seatId': 5,
         }))
-        # await asyncio.sleep(1)
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'join',
             'seatId': 0,
         }))
-        for i in range(1):
+
+        # add chips
+        await self.websocket_admin.send(json.dumps({
+            'channelCommand': "makeEngineCommand",
+            'engineCommand': 'addChips',
+            'seatId': 5,
+            'chips': 1000,
+        }))
+
+        # add chips
+        await self.websocket_user1.send(json.dumps({
+            'channelCommand': "makeEngineCommand",
+            'engineCommand': 'addChips',
+            'seatId': 0,
+            'chips': 1000,
+        }))
+
+        # start game
+        await self.websocket_admin.send(json.dumps({
+            'channelCommand': "makeEngineCommand",
+            'engineCommand': 'startGame',
+            'seatId': 5,
+        }))
+
+        for i in range(20):
             response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
             response_user1 = json.dumps(json.loads(await self.websocket_user1.recv()), indent=4)
             print(response_admin)
             print(response_user1)
 
-    #     response_admin = json.loads(await self.websocket_admin.recv())
-    #     response_user1 = json.loads(await self.websocket_user1.recv())
-    #     assert set(response_admin['state']['players'].keys()) == set(['auth0|66820bf8b97e7d87b0a74e1c', 'auth0|620f0a8ce734fe006e76c97b'])
-    #     assert set(response_user1['state']['players'].keys()) == set(['auth0|66820bf8b97e7d87b0a74e1c', 'auth0|620f0a8ce734fe006e76c97b'])
+        # make game command
+        await self.websocket_admin.send(json.dumps({
+            'channelCommand': "makeEngineCommand",
+            'engineCommand': 'bet',
+            'seatId': 5,
+        }))
+
+        # # make game command
+        # await self.websocket_user1.send(json.dumps({
+        #     'channelCommand': "makeEngineCommand",
+        #     'engineCommand': 'call',
+        #     'seatId': 0,
+        # }))
+
+        # observe game state
+        # for i in range(20):
+        #     response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
+        #     response_user1 = json.dumps(json.loads(await self.websocket_user1.recv()), indent=4)
+        #     print(response_admin)
+        #     print(response_user1)
         
+        # stop engine
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': "stopEngine",
