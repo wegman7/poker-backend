@@ -66,6 +66,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'engineCommand': 'join',
             'seatId': 5,
         }))
+        await asyncio.sleep(1)
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'join',
@@ -95,12 +96,6 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'seatId': 5,
         }))
 
-        for i in range(20):
-            response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
-            response_user1 = json.dumps(json.loads(await self.websocket_user1.recv()), indent=4)
-            print(response_admin)
-            print(response_user1)
-
         # make game command
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
@@ -116,11 +111,12 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         # }))
 
         # observe game state
-        # for i in range(20):
-        #     response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
-        #     response_user1 = json.dumps(json.loads(await self.websocket_user1.recv()), indent=4)
-        #     print(response_admin)
-        #     print(response_user1)
+
+        for i in range(50):
+            response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
+            response_user1 = json.dumps(json.loads(await self.websocket_user1.recv()), indent=4)
+            print(response_admin)
+            print(response_user1)
         
         # stop engine
         await self.websocket_admin.send(json.dumps({
