@@ -70,38 +70,35 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'join',
-            'seatId': 0,
+            'seatId': 2,
         }))
 
         # add chips
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'addChips',
-            'seatId': 5,
-            'chips': 1000,
+            'chips': 1000
         }))
 
         # add chips
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'addChips',
-            'seatId': 0,
             'chips': 1000,
         }))
 
         # start game
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
-            'engineCommand': 'startGame',
-            'seatId': 5,
+            'engineCommand': 'startGame'
         }))
 
         # make game command
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
-            'engineCommand': 'bet',
-            'seatId': 5,
+            'engineCommand': 'fold'
         }))
+        await asyncio.sleep(5)
 
         # # make game command
         # await self.websocket_user1.send(json.dumps({
@@ -109,20 +106,17 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         #     'engineCommand': 'call',
         #     'seatId': 0,
         # }))
-
-        # observe game state
-
-        for i in range(50):
-            response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
-            response_user1 = json.dumps(json.loads(await self.websocket_user1.recv()), indent=4)
-            print(response_admin)
-            print(response_user1)
         
+
+        for i in range(100):
+            response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
+            print(response_admin)
+
+
         # stop engine
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
-            'engineCommand': "stopEngine",
-            'seatId': 5,
+            'engineCommand': "stopEngine"
         }))
     
     async def asyncTearDown(self):
