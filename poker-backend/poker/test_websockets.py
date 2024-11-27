@@ -25,12 +25,12 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         extra_headers = {
             "Authorization": f"Bearer {admin_token}"
         }
-        self.websocket_admin = await websockets.connect(uri, extra_headers=extra_headers)
+        self.websocket_admin = await websockets.connect(uri, extra_headers=extra_headers, ping_timeout=10, close_timeout=10)
 
         extra_headers = {
             "Authorization": f"Bearer {user1_token}"
         }
-        self.websocket_user1 = await websockets.connect(uri, extra_headers=extra_headers)
+        self.websocket_user1 = await websockets.connect(uri, extra_headers=extra_headers, close_timeout=10)
 
     async def test_bogus_command(self):
         await self.websocket_admin.send(json.dumps({'channelCommand': "bogus"}))
@@ -52,13 +52,13 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
     #     assert(response2['recipient'] == 'group')
     
     async def test_join_game(self):
-        await asyncio.sleep(1)
+        await asyncio.sleep(.5)
         # start engine
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "startEngine",
             'bigBlind': 2,
         }))
-        await asyncio.sleep(1)
+        await asyncio.sleep(.5)
 
         # join game
         await self.websocket_admin.send(json.dumps({
@@ -66,7 +66,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'engineCommand': 'join',
             'seatId': 5,
         }))
-        await asyncio.sleep(1)
+        await asyncio.sleep(.2)
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'join',
@@ -88,30 +88,29 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         }))
 
         # start game
-        await self.websocket_admin.send(json.dumps({
+        await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'startGame'
         }))
 
-        # make game command
+        # user1 raises
+        await self.websocket_user1.send(json.dumps({
+            'channelCommand': "makeEngineCommand",
+            'engineCommand': 'bet',
+            'chips': 50,
+        }))
+        await asyncio.sleep(.2)
+
+        # admin calls
         await self.websocket_admin.send(json.dumps({
             'channelCommand': "makeEngineCommand",
-            'engineCommand': 'fold'
+            'engineCommand': 'call',
         }))
-        await asyncio.sleep(5)
-
-        # # make game command
-        # await self.websocket_user1.send(json.dumps({
-        #     'channelCommand': "makeEngineCommand",
-        #     'engineCommand': 'call',
-        #     'seatId': 0,
-        # }))
+        await asyncio.sleep(.2)
         
-
         for i in range(100):
             response_admin = json.dumps(json.loads(await self.websocket_admin.recv()), indent=4)
             print(response_admin)
-
 
         # stop engine
         await self.websocket_admin.send(json.dumps({
