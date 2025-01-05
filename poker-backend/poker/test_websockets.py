@@ -97,7 +97,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': 'bet',
-            'chips': 50,
+            'chips': 1000,
         }))
         await asyncio.sleep(.2)
 
