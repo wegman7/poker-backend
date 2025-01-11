@@ -1,10 +1,1 @@
-https://github.com/auth0-samples/auth0-react-samples/tree/master/Sample-01/src
-https://github.com/auth0-samples/auth0-django-api
-
-
-- add error handling for expired tokens
-- create groups in consumer
-
-- need to use redis (add to settings.py) to access self.channel_layers 
-
-# start making game_engine by adding basic user actions such as join, leave, sit in, sit out. we can start on the actual game actions later
+- at some point need to remove room_name from the websocket path, because we want to be (theoretically) be able to be part of multiple rooms with one websocket connection
