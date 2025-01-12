@@ -97,7 +97,19 @@ class Auth0AuthenticationWebsocket:
         self.app = app
     
     async def __call__(self, scope, receive, send):
-        bearer_token =  get_request_token_websocket(scope)
-        scope['user'] = bearer_token
-
+        try:
+            # Attempt to retrieve the bearer token
+            bearer_token = get_request_token_websocket(scope)
+            scope['user'] = bearer_token
+        except Exception as e:
+            # Handle exceptions (e.g., log them and close the WebSocket)
+            print(f"Authentication error: {e}")  # Replace with proper logging in production
+            await send({
+                "type": "websocket.close",
+                "code": 4001,  # Custom close code for authentication failure
+                "reason": "Authentication failed",
+            })
+            return
+        
+        # Proceed to the next ASGI application
         return await self.app(scope, receive, send)
