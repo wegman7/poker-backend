@@ -1,12 +1,11 @@
 import asyncio
-from dotenv import load_dotenv
 import json
 import os
 import uuid
-from unittest import IsolatedAsyncioTestCase
 import websockets
-import requests
-from pprint import pprint
+
+from dotenv import load_dotenv
+from unittest import IsolatedAsyncioTestCase
 
 from app.util.auth0_util import  get_user_token
 
@@ -20,36 +19,20 @@ user4_token = get_user_token('user4@gmail.com', password)
 
 class TestMyWebSocket(IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        # random_room_name = uuid.uuid4()
-        random_room_name = 'ce74cf3f'
+        random_room_name = uuid.uuid4()
         uri = f'ws://localhost:8000/ws/playerconsumer/{random_room_name}'
 
-        extra_headers = {
-            "Authorization": f"Bearer {user1_token}"
-        }
-        self.websocket_user1 = await websockets.connect(uri, extra_headers=extra_headers, close_timeout=100)
-
-        extra_headers = {
-            "Authorization": f"Bearer {user2_token}"
-        }
-        self.websocket_user2 = await websockets.connect(uri, extra_headers=extra_headers, close_timeout=100)
-
-        extra_headers = {
-            "Authorization": f"Bearer {user3_token}"
-        }
-        self.websocket_user3 = await websockets.connect(uri, extra_headers=extra_headers, close_timeout=100)
-
-        extra_headers = {
-            "Authorization": f"Bearer {user4_token}"
-        }
-        self.websocket_user4 = await websockets.connect(uri, extra_headers=extra_headers, close_timeout=100)
+        self.websocket_user1 = await websockets.connect(uri + f'?token={user1_token}', close_timeout=100)
+        self.websocket_user2 = await websockets.connect(uri + f'?token={user2_token}', close_timeout=100)
+        self.websocket_user3 = await websockets.connect(uri + f'?token={user3_token}', close_timeout=100)
+        self.websocket_user4 = await websockets.connect(uri + f'?token={user4_token}', close_timeout=100)
 
     async def collect_messages(self, websocket):
         """Helper function to collect messages from a WebSocket."""
         try:
             while True:
                 message = json.loads(await websocket.recv())
-                # print(json.dumps(message, indent=4))
+                print(json.dumps(message, indent=4))
                 self.messages.append(message)
         except asyncio.CancelledError:
             print('Cancelling task...')

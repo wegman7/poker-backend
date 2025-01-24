@@ -82,12 +82,11 @@ class Auth0Authentication(BaseAuthentication):
 
 
 def get_request_token_websocket(scope) -> Optional[RequestToken]:
-    headers = dict(scope['headers'])
-    bearer_token_bytes = headers.get(b'authorization', None)
-    bearer_token = bearer_token_bytes.decode() if bearer_token_bytes else None
-    if bearer_token and bearer_token.startswith("Bearer "):
-        token_str = bearer_token.partition(" ")[2]
-        token = RequestToken(token_str)
+    query_string = scope.get('query_string', b'').decode()
+    query_params = dict(param.split('=') for param in query_string.split('&') if '=' in param)
+    bearer_token = query_params.get('token', None)
+    if bearer_token:
+        token = RequestToken(bearer_token)
         return token
     return None
 
@@ -97,6 +96,11 @@ class Auth0AuthenticationWebsocket:
         self.app = app
     
     async def __call__(self, scope, receive, send):
+        failed_auth_response = {
+            "type": "websocket.close",
+            "code": 4001,  # Custom close code for authentication failure
+            "reason": "Authentication failed",
+        }
         try:
             # Attempt to retrieve the bearer token
             bearer_token = get_request_token_websocket(scope)
@@ -104,12 +108,12 @@ class Auth0AuthenticationWebsocket:
         except Exception as e:
             # Handle exceptions (e.g., log them and close the WebSocket)
             print(f"Authentication error: {e}")  # Replace with proper logging in production
-            await send({
-                "type": "websocket.close",
-                "code": 4001,  # Custom close code for authentication failure
-                "reason": "Authentication failed",
-            })
+            await send(failed_auth_response)
             return
         
+        if not bearer_token:
+            print("Authentication failed")
+            await send(failed_auth_response)
+            return
         # Proceed to the next ASGI application
         return await self.app(scope, receive, send)
