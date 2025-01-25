@@ -69,7 +69,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'channelCommand': "startEngine",
             'bigBlind': 2,
         }))
-        await asyncio.sleep(.3)
+        await asyncio.sleep(.5)
 
         # join game
         await self.websocket_user1.send(json.dumps({
@@ -182,7 +182,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'channelCommand': "startEngine",
             'bigBlind': 2,
         }))
-        await asyncio.sleep(.3)
+        await asyncio.sleep(.5)
 
         # join game
         await self.websocket_user1.send(json.dumps({
@@ -295,7 +295,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'channelCommand': "startEngine",
             'bigBlind': 2,
         }))
-        await asyncio.sleep(.3)
+        await asyncio.sleep(.5)
 
         # join game
         await self.websocket_user1.send(json.dumps({
