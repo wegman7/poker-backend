@@ -67,6 +67,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         await asyncio.sleep(1)
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "startEngine",
+            'smallBlind': 1,
             'bigBlind': 2,
         }))
         await asyncio.sleep(.7)
@@ -180,6 +181,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         await asyncio.sleep(1)
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "startEngine",
+            'smallBlind': 1,
             'bigBlind': 2,
         }))
         await asyncio.sleep(.7)
@@ -293,6 +295,7 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         await asyncio.sleep(1)
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "startEngine",
+            'smallBlind': 1,
             'bigBlind': 2,
         }))
         await asyncio.sleep(.7)

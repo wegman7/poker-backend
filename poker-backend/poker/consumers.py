@@ -48,7 +48,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         event['room_name'] = self.room_name
         response = requests.post(
             "http://localhost:8080/start-engine",
-            json={"roomName": self.room_name, "smallBlind": 1, "bigBlind": 2},
+            json={"roomName": self.room_name, "smallBlind": event['smallBlind'], "bigBlind": event['bigBlind']},
         )
     
     async def make_engine_command(self, event):
