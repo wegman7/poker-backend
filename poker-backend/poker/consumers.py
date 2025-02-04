@@ -1,3 +1,4 @@
+import copy
 import requests
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
@@ -42,7 +43,12 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         )
     
     async def send_message(self, event):
-        await self.send_json(event)
+        event_copy = copy.deepcopy(event)
+        if 'players' in event_copy['event']:
+            for player in event_copy['event']['players'].values():
+                if player['holeCards'] is not None and player['user'] != self.scope['user'].get_user():
+                    player['holeCards'] = ['xx', 'xx']
+        await self.send_json(event_copy)
     
     async def start_engine(self, event):
         event['room_name'] = self.room_name
