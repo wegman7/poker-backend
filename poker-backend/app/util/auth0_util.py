@@ -5,15 +5,23 @@ load_dotenv()
 
 auth0_domain = os.getenv('AUTH0_DOMAIN')
 audience = os.getenv('AUTH0_API_IDENTIFIER')
-client_id = 'XFQQrnqBnCC6ceYh8NlIvOPSVr422j13'
-# what is client secret for?
-client_secret = 'XybVxyjuQipKBOzPXV6tqX2IEDdeyMSnugO7xS7dDyTY-rAhGVKJQ7bMkBbAkx8M'
+
+client_id = os.getenv('AUTH0_CLIENT_ID')
+client_secret = os.getenv('AUTH0_CLIENT_SECRET')
+
+explorer_client_id = os.getenv('AUTH0_CLIENT_ID_API_EXPLORER_APP')
+explorer_client_secret = os.getenv('AUTH0_CLIENT_SECRET_API_EXPLORER_APP')
 
 def get_mang_token():
     conn = http.client.HTTPSConnection(auth0_domain)
 
     # these are management client_id and client_secret
-    payload = "{\"client_id\":\"wJKkZJURtJchqA7OBDKJYw6SYZ7uziJt\",\"client_secret\":\"lr-AUBKEq4qv6mZ1HQj7WnkghoMd-RbcuLg6F_Mg8rL_7XAYR8JQVQNBaRVfrZ-X\",\"audience\":\"https://dev--9h7x0q1.us.auth0.com/api/v2/\",\"grant_type\":\"client_credentials\"}"
+    payload = json.dumps({
+        'client_id': explorer_client_id,
+        'client_secret': explorer_client_secret,
+        'audience': f"{auth0_domain}/api/v2/",
+        'grant_type': "client_credentials"
+    })
 
     headers = { 'content-type': "application/json" }
 
@@ -66,18 +74,16 @@ def get_user_token(username, password):
 
     return token
 
-def get_user_details():
+def get_user_details(user_id):
     conn = http.client.HTTPSConnection(auth0_domain)
     token = get_mang_token()
 
-    # find user info
-    id = 'auth0|620f0a8ce734fe006e76c97b'
     headers = {
         'content-type': "application/json",
         'authorization': 'Bearer ' + token
     }
 
-    conn.request("GET", f"/api/v2/users/{id}", headers=headers)
+    conn.request("GET", f"/api/v2/users/{user_id}", headers=headers)
 
     response = conn.getresponse()
     data = response.read()
