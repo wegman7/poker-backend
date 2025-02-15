@@ -1,44 +1,51 @@
-# Auth0 Django API Samples
+# Auth0 + Python + Django REST Framework API Seed
 
-[![CircleCI](https://img.shields.io/circleci/project/github/auth0-samples/auth0-django-api.svg?style=flat-square)](https://circleci.com/gh/auth0-samples/auth0-django-api/tree/master)
+This is the seed project you need to use if you're going to create a Python + Django REST Framework API.
+If you just want to create a Regular Django WebApp, please
+check [this project](https://github.com/auth0-samples/auth0-django-samples/tree/master/01-Login)
 
-These samples demonstrate how to create an API with Django which only permits access to resources if a valid **access token** is included. This verification is done by validating the signature and claims in a JSON Web Token (JWT) signed by Auth0.
+Please check our [Quickstart](https://auth0.com/docs/quickstart/backend/django) to better understand this sample.
 
-These samples do not demonstrate how to sign a JWT but rather assume that a user has already been authenticated by Auth0 and holds an access token for API access. For information on how to use Auth0 to authenticate users, see [the docs](https://auth0.com/docs).
+# Running the example
 
-## What is Auth0?
+In order to run the example, you need to have `python` and `pip` installed.
 
-Auth0 helps you to:
+You also need to set your Auth0 Domain and the API's audience as environment variables with the following names
+respectively: `AUTH0_DOMAIN` and `API_IDENTIFIER`, which is the audience of your API. You can find an example in the
+`env.example` file.
 
-* Add authentication with [multiple authentication sources](https://docs.auth0.com/identityproviders),
-either social like **Google, Facebook, Microsoft Account, LinkedIn, GitHub, Twitter, Box, Salesforce, among others**,
-or enterprise identity systems like **Windows Azure AD, Google Apps, Active Directory, ADFS or any SAML Identity Provider**.
-* Add authentication through more traditional **[username/password databases](https://docs.auth0.com/mysql-connection-tutorial)**.
-* Add support for **[linking different user accounts](https://docs.auth0.com/link-accounts)** with the same user.
-* Support for generating signed [JSON Web Tokens](https://docs.auth0.com/jwt) to call your APIs and **flow the user identity** securely.
-* Analytics of how, when and where users are logging in.
-* Pull data from other sources and add it to the user profile, through [JavaScript rules](https://docs.auth0.com/rules).
+For that, if you just create a file named `.env` in the directory and set the values like the following,
+the app will just work:
 
-## Create a free account in Auth0
+```bash
+# .env file
+AUTH0_DOMAIN=example.auth0.com
+API_IDENTIFIER=YOUR_API_AUDIENCE
 
-1. Go to [Auth0](https://auth0.com) and click Sign Up.
-2. Use Google, GitHub or Microsoft Account to login.
+```
 
-## Issue Reporting
+Once you've set those 2 environment variables:
 
-If you have found a bug or if you have a feature request, please report them at this repository issues section.
-Please do not report security vulnerabilities on the public GitHub issue tracker.
-The [Responsible Disclosure Program](https://auth0.com/whitehat) details the procedure for disclosing security issues.
+1. Install the needed dependencies with `pip install -r requirements.txt`
+2. Migrate the database with `python manage.py migrate`
+3. Start the server with `python manage.py runserver 3010`
+4. Try calling [http://localhost:3010/api/public](http://localhost:3010/api/public)
 
-## Author
+# Testing the API
 
-[Auth0](https://auth0.com)
+You can then try to do a GET to [http://localhost:3010/api/private](http://localhost:3010/api/private) which will
+throw an error if you don't send an access token signed with RS256 with the appropriate issuer and audience in the
+Authorization header. 
 
-## License
+You can also try to do a GET to 
+[http://localhost:3010/api/private-scoped/](http://localhost:3010/api/private-scoped) which will throw an error if
+you don't send an access token with the scope `read:messages` signed with RS256 with the appropriate issuer and audience
+in the Authorization header.
 
-This project is licensed under the MIT license. See the [LICENSE](LICENSE) file for more info.
- 
-## Here are some useful links that I added
+# Running the example with Docker
 
-https://github.com/auth0-samples/auth0-react-samples/tree/master/Sample-01/src
-https://github.com/auth0-samples/auth0-django-api
+In order to run the sample with [Docker](https://www.docker.com/) you need to add the `AUTH0_DOMAIN` and `API_ID`
+to the `.env` filed as explained [previously](#running-the-example) and then
+
+1. Execute in command line `sh exec.sh` to run the Docker in Linux, or `.\exec.ps1` to run the Docker in Windows.
+2. Try calling [http://localhost:3010/api/public](http://localhost:3010/api/public)

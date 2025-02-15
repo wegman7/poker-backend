@@ -4,6 +4,10 @@ from django.http import HttpRequest
 from rest_framework.authentication import BaseAuthentication
 from jwt import PyJWKClient, decode
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class JsonException(Exception):
     pass
 
@@ -107,12 +111,12 @@ class Auth0AuthenticationWebsocket:
             scope['user'] = bearer_token
         except Exception as e:
             # Handle exceptions (e.g., log them and close the WebSocket)
-            print(f"Authentication error: {e}")  # Replace with proper logging in production
+            logger.error(f"Authentication error: {e}")
             await send(failed_auth_response)
             return
         
         if not bearer_token:
-            print("Authentication failed")
+            logger.error("Authentication failed")
             await send(failed_auth_response)
             return
         # Proceed to the next ASGI application

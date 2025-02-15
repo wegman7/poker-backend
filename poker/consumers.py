@@ -1,6 +1,8 @@
 import copy
 import requests
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+import logging
+logger = logging.getLogger(__name__)
 
 class PlayerConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
@@ -86,7 +88,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
 class EngineConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"] + '-engine'
-        print('starting engine with room_name:', self.room_name, '...')
+        logger.info(f"Starting engine with room_name: {self.room_name}...")
         await self.channel_layer.group_add(self.room_name, self.channel_name)
         await self.accept()
     
