@@ -9,7 +9,7 @@ from unittest import IsolatedAsyncioTestCase
 
 from app.util.auth0_util import  get_user_token
 
-load_dotenv()
+load_dotenv('../.env')
 
 password = os.getenv('PASSWORD')
 user1_token = get_user_token('user1@gmail.com', password)
