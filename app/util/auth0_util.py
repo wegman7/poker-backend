@@ -1,7 +1,4 @@
 import http.client, json, os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 auth0_domain = os.getenv('AUTH0_DOMAIN')
 audience = os.getenv('AUTH0_API_IDENTIFIER')

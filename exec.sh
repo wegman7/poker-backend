@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
-docker build -t backend .
-docker run --env-file .env -p 8000:8000 -it backend
+
+# build for amd64
+docker buildx build --platform linux/amd64 \
+  -t gcr.io/poker-451119/backend:v1 \
+  --push .
+docker run -d --env-file .env.prod -p 8000:8000 gcr.io/poker-451119/backend:v1

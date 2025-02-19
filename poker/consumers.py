@@ -1,4 +1,5 @@
 import copy
+import os
 import requests
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 import logging
@@ -55,7 +56,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
     async def start_engine(self, event):
         event['room_name'] = self.room_name
         response = requests.post(
-            "http://localhost:8080/start-engine",
+            f"{os.getenv('ENGINE_URL')}/start-engine",
             json={"roomName": self.room_name, "smallBlind": event['smallBlind'], "bigBlind": event['bigBlind']},
         )
     
