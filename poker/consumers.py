@@ -74,6 +74,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         pass
 
     async def disconnect(self, close_code):
+        logger.info(f"Disconnecting player with room_name: {self.room_name}... close_code: {close_code}")
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
     @property
