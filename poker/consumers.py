@@ -9,6 +9,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
         await self.channel_layer.group_add(self.room_name, self.channel_name)
+        logger.info(f"Connecting user {self.scope['user'].get_user()} to room {self.room_name}...")
         await self.accept()
     
     async def receive_json(self, event):
@@ -74,7 +75,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         pass
 
     async def disconnect(self, close_code):
-        logger.info(f"Disconnecting player with room_name: {self.room_name}... close_code: {close_code}")
+        logger.info(f"Disconnecting user {self.scope['user'].get_user()} from room {self.room_name} with close_code {close_code}...")
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
     @property

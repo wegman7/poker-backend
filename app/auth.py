@@ -100,6 +100,7 @@ class Auth0AuthenticationWebsocket:
         self.app = app
     
     async def __call__(self, scope, receive, send):
+        logger.info("Authenticating WebSocket connection...")
         failed_auth_response = {
             "type": "websocket.close",
             "code": 4001,  # Custom close code for authentication failure
