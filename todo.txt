@@ -7,3 +7,6 @@ backlog:
 
 
 
+- need to fix issue of sending out state everytime someone connects
+- also need to figure out how we want to handle closing engine when players no longer connected - should be some sort of timeout
+- add automatic refreshing of tokens
