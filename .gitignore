@@ -1,0 +1,7 @@
+.env
+db.sqlite3
+*.pyc
+requirements.in
+__pycache__
+.*
+!.gitignore
