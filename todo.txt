@@ -10,3 +10,6 @@ backlog:
 - need to fix issue of sending out state everytime someone connects
 - also need to figure out how we want to handle closing engine when players no longer connected - should be some sort of timeout
 - add automatic refreshing of tokens
+
+- cleanup old unused game_engine_old.py and game_engine.py files
+- write a bunch of very rigorous int tests (add to same idea as test_websockets.py)
