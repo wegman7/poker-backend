@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import os
 import requests
@@ -55,8 +56,8 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json(event_copy)
     
     async def start_engine(self, event):
-        event['room_name'] = self.room_name
-        response = requests.post(
+        await asyncio.to_thread(
+            requests.post,
             f"{os.getenv('ENGINE_URL')}/start-engine",
             json={"roomName": self.room_name, "smallBlind": event['smallBlind'], "bigBlind": event['bigBlind']},
         )
