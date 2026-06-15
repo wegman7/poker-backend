@@ -13,7 +13,6 @@ Game flow: Players connect via WebSocket → Django authenticates JWT → relays
 
 Key files:
 - [poker/consumers.py](poker/consumers.py) — `PlayerConsumer` (player WS) and `EngineConsumer` (engine WS), command dispatch
-- [poker/game_engine.py](poker/game_engine.py) — Relays game state from engine; broadcasts to players via Redis
 - [app/asgi.py](app/asgi.py) — ASGI entry point, WebSocket routing, Auth0 middleware
 - [app/auth.py](app/auth.py) — Auth0 JWT validation, `RequestToken` class
 - [poker/routing.py](poker/routing.py) — WebSocket URL patterns
