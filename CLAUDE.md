@@ -13,7 +13,7 @@ Game flow: Players connect via WebSocket → Django authenticates JWT → relays
 
 Key files:
 - [poker/consumers.py](poker/consumers.py) — `PlayerConsumer` (player WS) and `EngineConsumer` (engine WS), command dispatch
-- [poker/game_engine.py](poker/game_engine.py) — In-memory game state, runs update loop every 0.2s
+- [poker/game_engine.py](poker/game_engine.py) — Relays game state from engine; broadcasts to players via Redis
 - [app/asgi.py](app/asgi.py) — ASGI entry point, WebSocket routing, Auth0 middleware
 - [app/auth.py](app/auth.py) — Auth0 JWT validation, `RequestToken` class
 - [poker/routing.py](poker/routing.py) — WebSocket URL patterns
@@ -84,7 +84,6 @@ Deploys to Google Cloud Run. ASGI server: Daphne on port 8000.
 - Fix state broadcast on player connect
 - Implement engine timeout/cleanup logic
 - Add automatic token refresh
-- `game_engine_old.py` and `consumers_old.py` are legacy — pending cleanup
 
 ## Database
 
