@@ -22,18 +22,19 @@ Key files:
 
 ```bash
 source .venv/bin/activate
-export $(cat .env | xargs)
-python manage.py runserver
+DJANGO_SETTINGS_MODULE=app.settings.dev python manage.py runserver
 ```
 
-Note: Django doesn't auto-load `.env`, so `export $(cat .env | xargs)` is required to set `DJANGO_SETTINGS_MODULE` and other vars before running.
+Note: The settings file calls `load_dotenv()`, so `.env` vars are loaded automatically once Django starts. The only var that must be in the shell environment beforehand is `DJANGO_SETTINGS_MODULE`, since Django needs it to find the settings file in the first place.
 
 Requires Redis running locally and the Go engine running on port 8080.
 
 Run tests:
 ```bash
-pytest -s ./poker/test_websockets.py
+export $(cat .env | xargs) && pytest -s ./poker/test_websockets.py
 ```
+
+Note: `export $(cat .env | xargs)` is required before running tests. `auth0_util.py` reads `AUTH0_DOMAIN` and other vars at module-import time, before any `load_dotenv()` call in the test files can take effect.
 
 ## Environment Variables
 

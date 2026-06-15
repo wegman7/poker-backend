@@ -37,15 +37,13 @@ def get_mang_token():
     return token
 
 def get_user_token(username, password):
-    # don't need client secret for user login
     url = f'{auth0_domain}/oauth/token'
     headers = {'Content-Type': 'application/json'}
     body = json.dumps({
         'grant_type': 'password',
         'client_id': client_id,
+        'client_secret': client_secret,
         'audience': audience,
-        # you can change the audience to get different auth/id tokens
-        # 'audience': 'https://dev--9h7x0q1.us.auth0.com/userinfo',
         'username': username,
         'password': password
     })
