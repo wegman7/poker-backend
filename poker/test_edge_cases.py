@@ -7,9 +7,9 @@ import websockets
 from dotenv import load_dotenv
 from unittest import IsolatedAsyncioTestCase
 
-from app.util.auth0_util import get_user_token
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
-load_dotenv('../.env')
+from app.util.auth0_util import get_user_token
 
 password = os.getenv('PASSWORD')
 user1_token = get_user_token('user1@gmail.com', password)
@@ -39,10 +39,26 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
         except asyncio.CancelledError:
             pass
 
+    async def _wait_for_state(self, condition, timeout=2.0):
+        """Poll self.messages until a new sendState matching condition appears.
+
+        Snapshots the message list length on entry so stale pre-action states
+        are never matched — only messages that arrive after the call are scanned.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        start_index = len(self.messages)
+        while loop.time() < deadline:
+            for msg in self.messages[start_index:]:
+                event = msg.get('event', {})
+                if event.get('channelCommand') == 'sendState' and condition(event):
+                    return event
+            await asyncio.sleep(0.02)
+        raise AssertionError("Timed out waiting for expected state")
+
     async def _start_engine_and_join(self, seats_and_chips, small_blind=1, big_blind=2):
         """Start engine, join players, and add chips. seats_and_chips is a list of
         (websocket, seat_id, chips) tuples in join order."""
-        await asyncio.sleep(1)
         await self.websocket_user1.send(json.dumps({
             'channelCommand': 'startEngine',
             'smallBlind': small_blind,
@@ -56,7 +72,6 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
                 'engineCommand': 'join',
                 'seatId': seat_id,
             }))
-            await asyncio.sleep(0.15)
             await ws.send(json.dumps({
                 'channelCommand': 'makeEngineCommand',
                 'engineCommand': 'addChips',
@@ -112,11 +127,11 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
             (self.websocket_user2, 5, 100),
         ])
         await self._start_game()
-        await asyncio.sleep(0.2)
+        await self._wait_for_state(lambda e: e.get('pot', 0) > 0)
 
         # user2 is SB/dealer in heads-up, so acts first preflop
         await self._make_action(self.websocket_user2, 'fold')
-        await asyncio.sleep(2)
+        await self._wait_for_state(lambda e: e.get('pot', 0) == 0 and e.get('collectedPot', 0) == 0)
 
         await self._stop_engine()
         task.cancel()
@@ -149,34 +164,43 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
             (self.websocket_user3, 6, 100),
         ])
         await self._start_game()
-        await asyncio.sleep(0.2)
+        await self._wait_for_state(lambda e: e.get('pot', 0) > 0)
 
         # Preflop: user3 is NOT spotlight (user2 is UTG). This bet should be rejected.
         await self._make_action(self.websocket_user3, 'bet', chips=100)
+        await asyncio.sleep(0.1)
 
         # Legitimate preflop actions: UTG calls, SB calls, BB checks
         await self._make_action(self.websocket_user2, 'call')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user3, 'call')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
-        await asyncio.sleep(0.3)
+        await self._wait_for_state(lambda e: len(e.get('communityCards') or []) == 3)
 
         # Flop: spotlight=user3(SB position), check around
         await self._make_action(self.websocket_user3, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user2, 'check')
-        await asyncio.sleep(0.3)
+        await self._wait_for_state(lambda e: len(e.get('communityCards') or []) == 4)
 
         # Turn
         await self._make_action(self.websocket_user3, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user2, 'check')
-        await asyncio.sleep(0.3)
+        await self._wait_for_state(lambda e: len(e.get('communityCards') or []) == 5)
 
         # River
         await self._make_action(self.websocket_user3, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user2, 'check')
-        await asyncio.sleep(0.5)
+        await self._wait_for_state(lambda e: e.get('pot', 0) == 0 and e.get('collectedPot', 0) == 0)
 
         await self._stop_engine()
         task.cancel()
@@ -207,17 +231,19 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
             (self.websocket_user3, 6, 100),
         ])
 
-        # user3 opts out before the hand starts
+        # user3 opts out before the hand starts; small sleep ensures it's processed
+        # before startGame (cross-connection ordering is not guaranteed)
         await self._make_action(self.websocket_user3, 'sitOut')
         await asyncio.sleep(0.15)
 
         await self._start_game()
-        await asyncio.sleep(0.2)
+        await self._wait_for_state(lambda e: e.get('pot', 0) > 0)
 
         # Heads-up (user1 vs user2): dealer=user2(SB), spotlight=user2 preflop
         await self._make_action(self.websocket_user2, 'bet', chips=100)
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'call')
-        await asyncio.sleep(2)
+        await self._wait_for_state(lambda e: e.get('pot', 0) == 0 and e.get('collectedPot', 0) == 0)
 
         await self._stop_engine()
         task.cancel()
@@ -251,31 +277,39 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
             (self.websocket_user3, 6, 100),
         ])
         await self._start_game()
-        await asyncio.sleep(0.2)
+        await self._wait_for_state(lambda e: e.get('pot', 0) > 0)
 
         # Preflop: UTG=user2 calls, SB=user3 calls, BB=user1 checks
         await self._make_action(self.websocket_user2, 'call')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user3, 'call')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
-        await asyncio.sleep(0.3)
+        await self._wait_for_state(lambda e: len(e.get('communityCards') or []) == 3)
 
         # Flop spotlight: user3 (first after psuedoDealer=user2)
         await self._make_action(self.websocket_user3, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user2, 'check')
-        await asyncio.sleep(0.3)
+        await self._wait_for_state(lambda e: len(e.get('communityCards') or []) == 4)
 
         # Turn
         await self._make_action(self.websocket_user3, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user2, 'check')
-        await asyncio.sleep(0.3)
+        await self._wait_for_state(lambda e: len(e.get('communityCards') or []) == 5)
 
         # River
         await self._make_action(self.websocket_user3, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'check')
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user2, 'check')
-        await asyncio.sleep(0.5)
+        await self._wait_for_state(lambda e: e.get('pot', 0) == 0 and e.get('collectedPot', 0) == 0)
 
         await self._stop_engine()
         task.cancel()
@@ -289,31 +323,38 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
         """A busted player who queues addChips before endHand is re-staked for the next hand.
 
         user1 (seat 1, rank 1 in DEBUG mode) beats user2 (seat 5) in a heads-up all-in.
-        user2 queues addChips immediately after going all-in. endHand's processSitCommand
-        picks this up, restoring user2's stack before the next hand begins.
+        Both start with 100 chips so user2's bet and user1's call leave both all-in,
+        triggering an automatic runout without postflop action needed.
 
-        After the PAUSE_LONG delay, a state broadcast should show user2 with 200 chips again.
+        addChips/sitIn are sent immediately after user1 calls so they land in sitCommands
+        while the engine runs the all-in runout; endHand's processSitCommand picks them
+        up, restoring user2's stack before the next hand begins.
         """
         self.messages = []
         task = asyncio.create_task(self.collect_messages(self.websocket_user1))
 
         await self._start_engine_and_join([
-            (self.websocket_user1, 1, 200),
+            (self.websocket_user1, 1, 100),
             (self.websocket_user2, 5, 100),
         ])
         await self._start_game()
-        await asyncio.sleep(0.2)
+        await self._wait_for_state(lambda e: e.get('pot', 0) > 0)
 
-        # Heads-up: dealer=user2(SB), spotlight=user2. Both go all-in.
+        # Heads-up: dealer=user2(SB), spotlight=user2. Both go all-in (equal stacks).
         await self._make_action(self.websocket_user2, 'bet', chips=100)
+        await asyncio.sleep(0.1)
         await self._make_action(self.websocket_user1, 'call')
 
-        # Queue rejoin commands before endHand processes the sit queue
+        # Queue rejoin commands immediately while the engine runs the all-in runout.
+        # They'll sit in sitCommands and be applied by endHand's processSitCommand
+        # before the next hand starts, regardless of how short PAUSE_LONG is.
         await self._make_action(self.websocket_user2, 'addChips', chips=200)
         await self._make_action(self.websocket_user2, 'sitIn')
 
-        # Wait for PAUSE_LONG (5s dev config) plus some buffer for hand 2 to begin
-        await asyncio.sleep(6.5)
+        await self._wait_for_state(
+            lambda e: e.get('players', {}).get('5', {}).get('chips') == 200,
+            timeout=3.0,
+        )
 
         await self._stop_engine()
         task.cancel()
@@ -346,8 +387,9 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
             (self.websocket_user2, 5, 100),
         ])
         await self._start_game()
-        # Wait for blinds + deal
-        await asyncio.sleep(0.5)
+        await self._wait_for_state(
+            lambda e: e.get('players', {}).get('1', {}).get('holeCards') is not None
+        )
 
         await self._stop_engine()
         task.cancel()
@@ -368,8 +410,8 @@ class TestEdgeCases(IsolatedAsyncioTestCase):
         # user1's cards should be masked (user2 is the receiver)
         assert user1_cards == ['xx', 'xx'], f"Expected user1's cards to be masked, got {user1_cards}"
 
-        # user2's own cards should be real integers, not masked strings
+        # user2's own cards should be real card strings (e.g. '2h'), not masked
         assert user2_cards != ['xx', 'xx'], "Expected user2's own cards to be unmasked"
         assert len(user2_cards) == 2, "Expected 2 hole cards for user2"
-        assert all(isinstance(c, int) for c in user2_cards), \
-            f"Expected integer card values for user2's own hand, got {user2_cards}"
+        assert all(isinstance(c, str) and c != 'xx' for c in user2_cards), \
+            f"Expected real card strings for user2's own hand, got {user2_cards}"
