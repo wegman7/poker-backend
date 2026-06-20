@@ -9,7 +9,7 @@ from unittest import IsolatedAsyncioTestCase
 
 from app.util.auth0_util import  get_user_token
 
-load_dotenv('../.env')
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
 password = os.getenv('PASSWORD')
 user1_token = get_user_token('user1@gmail.com', password)
@@ -37,6 +37,24 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
         except asyncio.CancelledError:
             print('Cancelling task...')
             pass
+
+    async def _wait_for_state(self, condition, timeout=5.0):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        start_index = len(self.messages)
+        while loop.time() < deadline:
+            for msg in self.messages[start_index:]:
+                event = msg.get('event', {})
+                if event.get('channelCommand') == 'sendState' and condition(event):
+                    return event
+            await asyncio.sleep(0.02)
+        raise AssertionError("Timed out waiting for expected state")
+
+    def _last_state(self):
+        for msg in reversed(self.messages):
+            if msg.get('event', {}).get('channelCommand') == 'sendState':
+                return msg['event']
+        return None
 
     async def test_bogus_command(self):
         await self.websocket_user1.send(json.dumps({'channelCommand': "bogus"}))
@@ -157,19 +175,18 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'chips': 1000,
         }))
 
-        await asyncio.sleep(2)
-        # stop engine
+        await self._wait_for_state(lambda e: e.get('pot', -1) == 0 and e.get('collectedPot', -1) == 0 and not e.get('gameStopped', True))
+        state = self._last_state()
+        task.cancel()
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': "stopEngine"
         }))
 
-        # Start background tasks to collect messages
-        task.cancel()
-        assert(self.messages[-1]['event']['players']['1']['chips'] == 200)
-        assert(self.messages[-1]['event']['players']['2']['chips'] == 300)
-        assert(self.messages[-1]['event']['players']['3']['chips'] == 400)
-        assert(self.messages[-1]['event']['players']['4']['chips'] == 1000)
+        assert(state['players']['1']['chips'] == 200)
+        assert(state['players']['2']['chips'] == 300)
+        assert(state['players']['3']['chips'] == 400)
+        assert(state['players']['4']['chips'] == 1000)
     
     # result should be user1 -> 800, user2 -> 300, user3 -> 200, user4 -> 600 
     async def test_small_stack_wins(self):
@@ -271,19 +288,18 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'chips': 1000,
         }))
 
-        await asyncio.sleep(2)
-        # stop engine
+        await self._wait_for_state(lambda e: e.get('pot', -1) == 0 and e.get('collectedPot', -1) == 0 and not e.get('gameStopped', True))
+        state = self._last_state()
+        task.cancel()
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': "stopEngine"
         }))
 
-        # Start background tasks to collect messages
-        task.cancel()
-        assert(self.messages[-1]['event']['players']['5']['chips'] == 800)
-        assert(self.messages[-1]['event']['players']['6']['chips'] == 300)
-        assert(self.messages[-1]['event']['players']['7']['chips'] == 200)
-        assert(self.messages[-1]['event']['players']['8']['chips'] == 600)
+        assert(state['players']['5']['chips'] == 800)
+        assert(state['players']['6']['chips'] == 300)
+        assert(state['players']['7']['chips'] == 200)
+        assert(state['players']['8']['chips'] == 600)
     
     # result should be user1 -> 400, user2 -> 700, user3 -> 800, user4 -> 0
     async def test_user1_user2_split_user3_wins_rest(self):
@@ -385,19 +401,18 @@ class TestMyWebSocket(IsolatedAsyncioTestCase):
             'chips': 400,
         }))
 
-        await asyncio.sleep(2)
-        # stop engine
+        await self._wait_for_state(lambda e: e.get('pot', -1) == 0 and e.get('collectedPot', -1) == 0 and not e.get('gameStopped', True))
+        state = self._last_state()
+        task.cancel()
         await self.websocket_user1.send(json.dumps({
             'channelCommand': "makeEngineCommand",
             'engineCommand': "stopEngine"
         }))
 
-        # Start background tasks to collect messages
-        task.cancel()
-        assert(self.messages[-1]['event']['players']['1']['chips'] == 400)
-        assert(self.messages[-1]['event']['players']['2']['chips'] == 700)
-        assert(self.messages[-1]['event']['players']['5']['chips'] == 800)
-        assert(self.messages[-1]['event']['players']['6']['chips'] == 0)
+        assert(state['players']['1']['chips'] == 400)
+        assert(state['players']['2']['chips'] == 700)
+        assert(state['players']['5']['chips'] == 800)
+        assert(state['players']['6']['chips'] == 0)
     
     async def asyncTearDown(self):
         await self.websocket_user1.close()
