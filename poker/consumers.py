@@ -1,14 +1,18 @@
 import asyncio
 import copy
 import os
+import time
 import requests
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 import logging
 logger = logging.getLogger(__name__)
 
 class PlayerConsumer(AsyncJsonWebsocketConsumer):
+    _player_count = {}  # room_name -> int
+
     async def connect(self):
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
+        PlayerConsumer._player_count[self.room_name] = PlayerConsumer._player_count.get(self.room_name, 0) + 1
         await self.channel_layer.group_add(self.room_name, self.channel_name)
         logger.info(f"Connecting user {self.scope['user'].get_user()} to room {self.room_name}...")
         await self.accept()
@@ -76,6 +80,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         pass
 
     async def disconnect(self, close_code):
+        PlayerConsumer._player_count[self.room_name] = max(0, PlayerConsumer._player_count.get(self.room_name, 0) - 1)
         logger.info(f"Disconnecting user {self.scope['user'].get_user()} from room {self.room_name} with close_code {close_code}...")
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
@@ -90,8 +95,12 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         }
 
 class EngineConsumer(AsyncJsonWebsocketConsumer):
+    _engine_count = {}    # room_name -> int (should be 0 or 1)
+    _last_state_at = {}   # room_name -> float (unix timestamp)
+
     async def connect(self):
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"] + '-engine'
+        EngineConsumer._engine_count[self.room_name] = EngineConsumer._engine_count.get(self.room_name, 0) + 1
         logger.info(f"Starting engine with room_name: {self.room_name}...")
         await self.channel_layer.group_add(self.room_name, self.channel_name)
         await self.accept()
@@ -102,6 +111,7 @@ class EngineConsumer(AsyncJsonWebsocketConsumer):
         await handler(event)
 
     async def send_state(self, event):
+        EngineConsumer._last_state_at[self.room_name] = time.time()
         await self.channel_layer.group_send(
             self.room_name.replace('-engine', ''),
             {
@@ -115,6 +125,7 @@ class EngineConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json(event['event'])
 
     async def disconnect(self, close_code):
+        EngineConsumer._engine_count[self.room_name] = max(0, EngineConsumer._engine_count.get(self.room_name, 0) - 1)
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
     @property

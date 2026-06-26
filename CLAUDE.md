@@ -75,6 +75,44 @@ Deploys to Google Cloud Run. ASGI server: Daphne on port 8000.
 
 **Command dispatch**: Both consumers use a `command_handlers` dict mapping command name → handler method.
 
+## Test Agents
+
+Automated agents that connect via WebSocket, play random valid poker actions, and check for illegal states. Useful for stress-testing edge cases across multiple concurrent games.
+
+**Prerequisites:** backend running, Redis running, Go engine running (or use `--start-engine`).
+
+```bash
+export $(cat .env | xargs)
+cd agents
+python runner.py \
+  --room-ids <uuid1> <uuid2> \
+  --agents-per-game 4 \
+  --duration 120 \
+  --users user1@gmail.com user2@gmail.com user3@gmail.com user4@gmail.com user5@gmail.com user6@gmail.com user7@gmail.com user8@gmail.com \
+  [--start-engine] \
+  [--start-game]
+```
+
+- `--room-ids` — one or more room UUIDs (create via the frontend first, or generate a UUID and pass `--start-engine`)
+- `--agents-per-game` — how many agents per room (default 4); needs `agents-per-game × num-rooms` users
+- `--users` — Auth0 email per agent slot, in order: room1_agent1, room1_agent2, ..., room2_agent1, ...
+- `--password` — shared password (falls back to `PASSWORD` env var)
+- `--start-engine` — first agent sends `startEngine` before joining; use when no engine is running yet
+- `--start-game` — first agent sends `startGame` after a 5s delay; use when no game has been started
+
+**Health check endpoint** (added as part of this): `GET /health/<room_id>/` returns engine connectivity status, seconds since last state broadcast, and player count. Polled every 5s by the runner.
+
+**What gets checked per broadcast:**
+- No state received within 10s of joining
+- Community cards never decrease in count
+- Pot and collectedPot are both 0 when a hand ends
+- No player vanishes from the players map without a leave command
+- Same state broadcast 10+ consecutive times while a hand is active (engine stuck)
+- One player holds spotlight for >60s
+- Game stays stopped with 2+ ready players for >30s after at least one hand has completed
+
+On any violation the runner logs the rule, details, and last 5 state snapshots, then exits non-zero.
+
 ## Notable TODOs (from todo.txt)
 
 - Set up logging correctly
