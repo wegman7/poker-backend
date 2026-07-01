@@ -48,6 +48,8 @@ class StateValidator:
             raise ViolationError(rule, self.room_id, details, recent)
 
     def _check_community_cards_regression(self, prev, curr):
+        if curr.get('gameStopped'):  # between-hand reset is expected
+            return []
         prev_n = len(prev.get('communityCards') or [])
         curr_n = len(curr.get('communityCards') or [])
         if curr_n < prev_n:

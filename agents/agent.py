@@ -119,10 +119,11 @@ class PokerAgent:
         if to_call >= my_chips:
             return cmd('call')
 
-        if current_bet == 0:
+        if to_call == 0:  # already matched (no-cost option: check or raise)
             if random.random() < 0.7:
                 return cmd('check')
-            amount = current_bet + random.uniform(big_blind, max(big_blind, my_chips))
+            raise_size = max(big_blind, min_raise)
+            amount = current_bet + random.uniform(raise_size, max(raise_size, my_chips))
             return cmd('bet', chips=round(amount, 2))
 
         choice = random.choices(['fold', 'call', 'raise'], weights=[0.3, 0.5, 0.2])[0]
