@@ -99,6 +99,15 @@ python runner.py \
 - `--password` — shared password (falls back to `PASSWORD` env var)
 - `--start-engine` — first agent sends `startEngine` before joining; use when no engine is running yet
 - `--start-game` — first agent sends `startGame` after a 5s delay; use when no game has been started
+- `--no-sit-actions` — disable the random sitOut/sitIn cycles (bust rebuy stays on)
+
+**Sit actions (default on):**
+- Every agent buys back in after busting: on seeing itself with 0 chips and `sittingOut`, it sends `addChips` + `sitIn` (debounced, 10s retry)
+- The first agent per room is the *game starter*: once the game has been seen active (or `--start-game` was passed), it re-sends `startGame` whenever `gameStopped` persists ~3s with 2+ players sitting in — so the game keeps going after busts stop a hand
+- Each agent randomly sits out every 20–45s for 3–10s, then sits back in (adding chips first if broke; occasionally tops up anyway)
+- Agents decide actions from the freshest broadcast (not the snapshot that scheduled the action) and retry every ~3s while they hold the spotlight with no state change — a rejected command produces no broadcast, so without the retry the game deadlocks
+
+Unit tests for the decision logic: `cd agents && pytest test_agent.py`
 
 **Health check endpoint** (added as part of this): `GET /health/<room_id>/` returns engine connectivity status, seconds since last state broadcast, and player count. Polled every 5s by the runner.
 
@@ -109,7 +118,8 @@ python runner.py \
 - No player vanishes from the players map without a leave command
 - Same state broadcast 10+ consecutive times while a hand is active (engine stuck)
 - One player holds spotlight for >60s
-- Game stays stopped with 2+ ready players for >30s after at least one hand has completed
+- Game stays stopped for >30s after at least one hand has completed (timer deliberately does NOT reset on ready-count dips — sit chatter must not mask a stall)
+- No state broadcast at all for >60s after the first one (engine dead/stalled)
 
 On any violation the runner logs the rule, details, and last 5 state snapshots, then exits non-zero.
 

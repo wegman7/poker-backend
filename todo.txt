@@ -4,4 +4,3 @@ backlog:
 - make hiding opponents cards more efficient (using deepcopy currently)
 - also need to figure out how we want to handle closing engine when players no longer connected - should be some sort of timeout
 - add automatic refreshing of tokens
-- make agent tests do sit actions as well (I think that will break things the most actually)

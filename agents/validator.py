@@ -101,22 +101,23 @@ class StateValidator:
         return []
 
     def _check_game_restart(self, state, timestamp):
+        # The timer must NOT reset while the game stays stopped: sit commands
+        # flip the ready count between broadcasts, and a reset on every dip
+        # lets a permanently stalled game pass unflagged.
         if not state.get('gameStopped'):
             self._seen_active = True
             self._game_stopped_since = None
             return []
         if not self._seen_active:
             return []  # before first hand, don't flag
-        sitting_in = sum(1 for p in state.get('players', {}).values() if not p.get('sittingOut'))
-        if sitting_in >= 2:
-            if self._game_stopped_since is None:
-                self._game_stopped_since = timestamp
-            elif timestamp - self._game_stopped_since > self.GAME_RESTART_TIMEOUT:
-                elapsed = timestamp - self._game_stopped_since
-                return [('GAME_STUCK_BETWEEN_HANDS',
-                         f'{sitting_in} players ready but gameStopped=True for {elapsed:.1f}s')]
-        else:
-            self._game_stopped_since = None
+        if self._game_stopped_since is None:
+            self._game_stopped_since = timestamp
+        elif timestamp - self._game_stopped_since > self.GAME_RESTART_TIMEOUT:
+            elapsed = timestamp - self._game_stopped_since
+            sitting_in = sum(1 for p in state.get('players', {}).values() if not p.get('sittingOut'))
+            return [('GAME_STUCK_BETWEEN_HANDS',
+                     f'gameStopped=True for {elapsed:.1f}s after game had been active '
+                     f'({sitting_in} players currently sitting in)')]
         return []
 
     @staticmethod

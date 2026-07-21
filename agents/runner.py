@@ -138,6 +138,8 @@ async def main(args):
                 start_engine=(j == 0 and args.start_engine),
                 start_game=(j == 0 and args.start_game),
                 engine_ready=engine_ready,
+                game_starter=(j == 0),
+                sit_actions=not args.no_sit_actions,
             )
             for j, (tok, uid) in enumerate(room_pairs)
         ]
@@ -174,6 +176,8 @@ def parse_args():
                    help='Send startEngine via the first agent before joining (use if engine is not yet running)')
     p.add_argument('--start-game', action='store_true',
                    help='Have the first agent send startGame after all agents join')
+    p.add_argument('--no-sit-actions', action='store_true',
+                   help='Disable random sitOut/sitIn cycles (rebuy after busting stays on)')
     return p.parse_args()
 
 
