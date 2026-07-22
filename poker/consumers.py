@@ -5,6 +5,9 @@ import time
 import requests
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 import logging
+
+from poker import hand_log
+
 logger = logging.getLogger(__name__)
 
 class PlayerConsumer(AsyncJsonWebsocketConsumer):
@@ -57,6 +60,9 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
             for player in event_copy['event']['players'].values():
                 if player['holeCards'] is not None and player['user'] != self.scope['user'].get_user():
                     player['holeCards'] = ['xx', 'xx']
+        for entry in event_copy['event'].get('actionLog') or []:
+            if entry.get('type') == 'dealHoleCards' and entry.get('user') != self.scope['user'].get_user():
+                entry['cards'] = ['xx', 'xx']
         await self.send_json(event_copy)
     
     async def start_engine(self, event):
@@ -112,8 +118,11 @@ class EngineConsumer(AsyncJsonWebsocketConsumer):
 
     async def send_state(self, event):
         EngineConsumer._last_state_at[self.room_name] = time.time()
+        player_room = self.room_name.replace('-engine', '')
+        engine_events = event.pop('events', None) or []
+        event['actionLog'] = hand_log.append(player_room, engine_events)
         await self.channel_layer.group_send(
-            self.room_name.replace('-engine', ''),
+            player_room,
             {
                 "type": "send.message",
                 "message": "broadcasting state...",
@@ -126,6 +135,7 @@ class EngineConsumer(AsyncJsonWebsocketConsumer):
 
     async def disconnect(self, close_code):
         EngineConsumer._engine_count[self.room_name] = max(0, EngineConsumer._engine_count.get(self.room_name, 0) - 1)
+        hand_log.clear(self.room_name.replace('-engine', ''))
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
     @property
