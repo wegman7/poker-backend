@@ -35,7 +35,7 @@
 - Consumes: existing `state`, `street` enum, `player` (`user`, `seatId`, `chips`, `sittingOut`, `next`).
 - Produces: `GameEvent` / `GameEventSeat` structs, `streetName(st street) string`, `(s *state) addEvent(ev GameEvent)`, `(s *state) takePendingEvents() []GameEvent`, `(s *state) seatsSnapshot() []GameEventSeat`, and new `state` fields `handNumber int`, `pendingEvents []GameEvent`, `showdownLogged bool`. All later tasks use exactly these names.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `poker-engine/internal/engine/events_test.go`:
 
@@ -109,12 +109,12 @@ func TestSeatsSnapshotStartsAtDealer(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd poker-engine && go test ./internal/engine/ -run 'TestAddEvent|TestTakePending|TestSeatsSnapshot' -v`
 Expected: compile FAIL — `undefined: GameEvent`, `s.addEvent undefined`, etc.
 
-- [ ] **Step 3: Create events.go**
+- [x] **Step 3: Create events.go**
 
 ```go
 package engine
@@ -209,7 +209,7 @@ func (s *state) seatsSnapshot() []GameEventSeat {
 }
 ```
 
-- [ ] **Step 4: Add the state fields**
+- [x] **Step 4: Add the state fields**
 
 In `poker-engine/internal/engine/state.go`, extend the `state` struct (after `chipsInHandTotal float64`):
 
@@ -236,12 +236,12 @@ In `resetState`, add one line at the end (do NOT touch `handNumber` or `pendingE
 	s.showdownLogged = false
 ```
 
-- [ ] **Step 5: Run tests to verify they pass (and nothing broke)**
+- [x] **Step 5: Run tests to verify they pass (and nothing broke)**
 
 Run: `cd poker-engine && go test ./internal/engine/ -v`
 Expected: all PASS, including pre-existing tests.
 
-- [ ] **Step 6: Commit (poker-engine repo)**
+- [x] **Step 6: Commit (poker-engine repo)**
 
 ```bash
 cd poker-engine
@@ -261,7 +261,7 @@ git commit -m "feat: add GameEvent type and pending-events buffer on state"
 - Consumes: `s.addEvent(GameEvent{...})`, `s.seatsSnapshot()`, `state.handNumber` from Task 1.
 - Produces: emission of `handStart`, `postBlind`, `dealHoleCards`, `dealStreet`, `win` (uncontested), `handEnd` events. Tasks 5/7 rely on these exact type strings and fields.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `poker-engine/internal/engine/events_test.go`:
 
@@ -400,12 +400,12 @@ func TestEveryoneFoldedPayoutAndHandEnd(t *testing.T) {
 
 (Note: `s.pendingEvents = nil` right after the fold keeps this test independent of Task 3, which adds the fold event.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd poker-engine && go test ./internal/engine/ -run 'TestStartHandEmits|TestBlindsAndDeal|TestDealStreetEmits|TestEveryoneFoldedPayoutAndHandEnd' -v`
 Expected: FAIL — "Expected 1 event, got 0" style assertions.
 
-- [ ] **Step 3: Add the emissions in engine.go**
+- [x] **Step 3: Add the emissions in engine.go**
 
 `startHand()` — replace the success tail:
 
@@ -480,12 +480,12 @@ func (e *engine) endHand() {
 }
 ```
 
-- [ ] **Step 4: Run all engine tests**
+- [x] **Step 4: Run all engine tests**
 
 Run: `cd poker-engine && go test ./internal/engine/ -v`
 Expected: all PASS (including `TestStartHandSetsChipsInHandTotal` etc.).
 
-- [ ] **Step 5: Commit (poker-engine repo)**
+- [x] **Step 5: Commit (poker-engine repo)**
 
 ```bash
 cd poker-engine
@@ -505,7 +505,7 @@ git commit -m "feat: emit lifecycle events (handStart, blinds, deals, win, handE
 - Consumes: `s.addEvent`, `p.isAllIn()`.
 - Produces: `fold`/`check`/`call`/`bet`/`raise` events. `raise` when `s.currentBet > 0` before the action (so every preflop open is a raise over the big blind — standard hand-history semantics).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `poker-engine/internal/engine/events_test.go`:
 
@@ -610,12 +610,12 @@ func TestRejectedActionEmitsNoEvent(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd poker-engine && go test ./internal/engine/ -run 'TestCallAndCheck|TestPreflopBet|TestPostflopBet|TestFoldEmits|TestRejectedAction' -v`
 Expected: FAIL on missing events (rejected-action test may already pass — that's fine).
 
-- [ ] **Step 3: Add the emissions in player.go**
+- [x] **Step 3: Add the emissions in player.go**
 
 `fold()` — right after the spotlight check passes (before `removePlayerInHand` mutates the hand):
 
@@ -679,12 +679,12 @@ func (p *player) bet(event *Event, e *engine, s *state) error {
 }
 ```
 
-- [ ] **Step 4: Run all engine tests**
+- [x] **Step 4: Run all engine tests**
 
 Run: `cd poker-engine && go test ./internal/engine/ -v`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit (poker-engine repo)**
+- [x] **Step 5: Commit (poker-engine repo)**
 
 ```bash
 cd poker-engine
@@ -705,7 +705,7 @@ git commit -m "feat: emit player action events (fold, check, call, bet/raise)"
 - Consumes: `s.addEvent`, `state.showdownLogged` (Task 1), `poker.RankString`/`poker.Evaluate`.
 - Produces: one `showdown` event per player still in the hand (cards + `handRank`), emitted once per hand even when `showdown()` runs again for side pots; one `win` event per winner per payout with the actual amount received.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `poker-engine/internal/engine/events_test.go` (add `"github.com/wegman7/game-engine/config"` to the file's imports):
 
@@ -756,12 +756,12 @@ func TestShowdownEmitsRevealsAndWins(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd poker-engine && go test ./internal/engine/ -run TestShowdownEmits -v`
 Expected: FAIL — "Expected 3 events, got 0".
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `engine.go` `showdown()`:
 
@@ -805,12 +805,12 @@ func (e *engine) showdown() {
 	}
 ```
 
-- [ ] **Step 4: Run all engine tests**
+- [x] **Step 4: Run all engine tests**
 
 Run: `cd poker-engine && go test ./internal/engine/ -v`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit (poker-engine repo)**
+- [x] **Step 5: Commit (poker-engine repo)**
 
 ```bash
 cd poker-engine
@@ -831,7 +831,7 @@ git commit -m "feat: emit showdown reveals and win events"
 - Consumes: `s.takePendingEvents()` (Task 1).
 - Produces: `events` JSON array on every sendState payload; `createSerializeState(s *state, gameStopped bool, events []GameEvent)` — note the new third parameter. Django (Task 7) reads `event['events']`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `poker-engine/internal/engine/events_test.go` (add `"encoding/json"` to the file's imports):
 
@@ -864,12 +864,12 @@ func TestSerializeStateIncludesEvents(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd poker-engine && go test ./internal/engine/ -run TestSerializeStateIncludesEvents -v`
 Expected: compile FAIL — `too many arguments in call to createSerializeState`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `serializeState.go` — add the field and parameter:
 
@@ -936,12 +936,12 @@ func (e *engine) sendState() {
 }
 ```
 
-- [ ] **Step 4: Run all engine tests and build**
+- [x] **Step 4: Run all engine tests and build**
 
 Run: `cd poker-engine && go build ./... && go test ./internal/engine/ -v`
 Expected: build OK, all tests PASS.
 
-- [ ] **Step 5: Commit (poker-engine repo)**
+- [x] **Step 5: Commit (poker-engine repo)**
 
 ```bash
 cd poker-engine
@@ -961,7 +961,7 @@ git commit -m "feat: include drained game events in every sendState payload"
 - Consumes: nothing project-specific (pure Python, stdlib logging only).
 - Produces: `hand_log.append(room_name, events) -> list` (returns the current hand's full log including the new events; on `handEnd` calls `persist_hand` with the completed hand then resets), `hand_log.current(room_name) -> list`, `hand_log.clear(room_name)`, `hand_log.persist_hand(room_name, hand_record)` (logging stub — the future DB hook). Task 7 uses `append` and `clear`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `poker-backend/poker/test_hand_log.py`:
 
@@ -1010,12 +1010,12 @@ class TestHandLog(TestCase):
         self.assertEqual(hand_log.current('room-a'), [])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_log -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'poker.hand_log'` (import error counts as the failing state).
 
-- [ ] **Step 3: Create hand_log.py**
+- [x] **Step 3: Create hand_log.py**
 
 ```python
 import logging
@@ -1063,12 +1063,12 @@ def persist_hand(room_name, hand_record):
     )
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_log -v`
 Expected: 6 tests PASS.
 
-- [ ] **Step 5: Commit (poker-backend repo)**
+- [x] **Step 5: Commit (poker-backend repo)**
 
 ```bash
 cd poker-backend
@@ -1090,7 +1090,7 @@ git commit -m "feat: add per-room hand log accumulator with persist_hand stub"
 
 **Prerequisite:** Both servers must run the new code for the integration tests. Restart the backend (`cd poker-backend && source .venv/bin/activate && DJANGO_SETTINGS_MODULE=app.settings.dev python manage.py runserver`) and the engine (`cd poker-engine && go run ./cmd/app -env=dev`) — or use `./run-servers.sh` from the workspace root. Dev config runs `DEBUG=true` (seat < 5 wins showdowns), which the tests rely on.
 
-- [ ] **Step 1: Write the failing integration tests**
+- [x] **Step 1: Write the failing integration tests**
 
 Create `poker-backend/poker/test_action_log.py` (helpers follow the established self-contained pattern of `test_edge_cases.py`):
 
@@ -1341,13 +1341,13 @@ class TestActionLog(IsolatedAsyncioTestCase):
         assert second['actionLog'][0]['type'] == 'handStart', f"Expected fresh log, got {second['actionLog']}"
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 With both servers running the **old** backend code (engine can already be new):
 Run: `cd poker-backend && source .venv/bin/activate && python -m unittest poker.test_action_log -v`
 Expected: FAIL — timeouts / missing `actionLog` ("Timed out waiting for expected state").
 
-- [ ] **Step 3: Wire consumers.py**
+- [x] **Step 3: Wire consumers.py**
 
 Add the import at the top of `poker-backend/poker/consumers.py`:
 
@@ -1407,7 +1407,7 @@ Replace `EngineConsumer.disconnect`:
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
 ```
 
-- [ ] **Step 4: Restart both servers, run the full suite**
+- [x] **Step 4: Restart both servers, run the full suite**
 
 Restart the backend and engine so both run the new code (see Prerequisite above). Then:
 
@@ -1417,7 +1417,7 @@ Expected: 4 tests PASS.
 Run: `cd poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_log poker.test_edge_cases -v`
 Expected: all PASS — the existing edge-case suite must not regress.
 
-- [ ] **Step 5: Commit (poker-backend repo)**
+- [x] **Step 5: Commit (poker-backend repo)**
 
 ```bash
 cd poker-backend
