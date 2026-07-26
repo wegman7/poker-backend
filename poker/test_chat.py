@@ -91,20 +91,34 @@ class TestChat(IsolatedAsyncioTestCase):
         assert by_text['from one'] != by_text['from two'], f"Senders collapsed: {chats}"
 
     async def test_oversize_message_is_rejected_and_not_broadcast(self):
-        listener = asyncio.create_task(self._drain(self.websocket_user2))
-        sender = asyncio.create_task(self._drain(self.websocket_user1))
+        listener = asyncio.create_task(self._drain(self.websocket_user2, seconds=0.8))
+        sender = asyncio.create_task(self._drain(self.websocket_user1, seconds=0.8))
         await asyncio.sleep(0.1)
         await self._send_chat(self.websocket_user1, 'a' * 201)
+        await asyncio.sleep(0.1)
+        await self._send_chat(self.websocket_user1, 'still works')
 
-        assert self._chats(await listener) == [], "Oversize message was broadcast"
-        assert self._errors(await sender), "Sender got no error for an oversize message"
+        chats = self._chats(await listener)
+        errors = self._errors(await sender)
+        assert errors == ['Chat message cannot exceed 200 characters.'], \
+            f"Expected the length-cap validation error, got {errors}"
+        assert [c['text'] for c in chats] == ['still works'], \
+            f"Expected only the valid follow-up to broadcast, got {chats}"
 
     async def test_empty_message_is_rejected_and_not_broadcast(self):
-        listener = asyncio.create_task(self._drain(self.websocket_user2))
+        listener = asyncio.create_task(self._drain(self.websocket_user2, seconds=0.8))
+        sender = asyncio.create_task(self._drain(self.websocket_user1, seconds=0.8))
         await asyncio.sleep(0.1)
         await self._send_chat(self.websocket_user1, '   ')
+        await asyncio.sleep(0.1)
+        await self._send_chat(self.websocket_user1, 'still works')
 
-        assert self._chats(await listener) == [], "Empty message was broadcast"
+        chats = self._chats(await listener)
+        errors = self._errors(await sender)
+        assert errors == ['Chat message cannot be empty.'], \
+            f"Expected the empty-message validation error, got {errors}"
+        assert [c['text'] for c in chats] == ['still works'], \
+            f"Expected only the valid follow-up to broadcast, got {chats}"
 
     async def test_rate_limit_caps_a_burst_and_errors_the_excess(self):
         listener = asyncio.create_task(self._drain(self.websocket_user2, seconds=1.2))
