@@ -6,7 +6,7 @@ import requests
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 import logging
 
-from poker import hand_log
+from poker import chat, hand_log
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
         PlayerConsumer._player_count[self.room_name] = PlayerConsumer._player_count.get(self.room_name, 0) + 1
         await self.channel_layer.group_add(self.room_name, self.channel_name)
         logger.info(f"Connecting user {self.scope['user'].get_user()} to room {self.room_name}...")
+        self.chat_limiter = chat.RateLimiter()
         await self.accept()
     
     async def receive_json(self, event):
@@ -65,6 +66,32 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
                 entry['cards'] = ['xx', 'xx']
         await self.send_json(event_copy)
     
+    async def handle_chat(self, event):
+        cleaned, error = chat.validate_chat_text(event.get('text'))
+        if error:
+            await self.send_json({'error': error})
+            return
+        if not self.chat_limiter.allow():
+            await self.send_json({'error': 'You are sending messages too quickly.'})
+            return
+        await self.channel_layer.group_send(
+            self.room_name,
+            {
+                "type": "chat.message",
+                'event': {
+                    'kind': 'chat',
+                    'user': self.scope['user'].get_user(),
+                    'text': cleaned,
+                    'timestamp': int(time.time() * 1000),
+                },
+            }
+        )
+
+    async def chat_message(self, event):
+        # Deliberately not routed through send_message: a chat payload has no
+        # cards, so it needs neither the deepcopy nor the per-recipient masking.
+        await self.send_json(event)
+
     async def start_engine(self, event):
         await asyncio.to_thread(
             requests.post,
@@ -97,7 +124,8 @@ class PlayerConsumer(AsyncJsonWebsocketConsumer):
             'sendMessageGroup': self.send_message_group,
             'startEngine': self.start_engine,
             'makeEngineCommand': self.make_engine_command,
-            'stopEngine': self.stop_engine
+            'stopEngine': self.stop_engine,
+            'sendChat': self.handle_chat
         }
 
 class EngineConsumer(AsyncJsonWebsocketConsumer):
@@ -121,6 +149,7 @@ class EngineConsumer(AsyncJsonWebsocketConsumer):
         player_room = self.room_name.replace('-engine', '')
         engine_events = event.pop('events', None) or []
         event['actionLog'] = hand_log.append(player_room, engine_events)
+        event['kind'] = 'state'
         await self.channel_layer.group_send(
             player_room,
             {
