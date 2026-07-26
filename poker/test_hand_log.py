@@ -40,3 +40,32 @@ class TestHandLog(TestCase):
         hand_log.append('room-a', [{'type': 'handStart'}])
         hand_log.clear('room-a')
         self.assertEqual(hand_log.current('room-a'), [])
+
+    def test_seq_is_monotonic_across_appends(self):
+        hand_log.append('room-a', [{'type': 'handStart'}, {'type': 'postBlind'}])
+        log = hand_log.append('room-a', [{'type': 'fold'}])
+        self.assertEqual([e['seq'] for e in log], [1, 2, 3])
+
+    def test_seq_continues_across_hand_end_reset(self):
+        with patch.object(hand_log, 'persist_hand'):
+            hand_log.append('room-a', [{'type': 'handStart'}, {'type': 'handEnd'}])
+        log = hand_log.append('room-a', [{'type': 'handStart'}])
+        self.assertEqual(hand_log.current('room-a'), log)
+        self.assertEqual([e['seq'] for e in log], [3])
+
+    def test_event_keeps_same_seq_across_snapshots(self):
+        first = hand_log.append('room-a', [{'type': 'handStart'}])
+        seq_before = first[0]['seq']
+        second = hand_log.append('room-a', [{'type': 'fold'}])
+        self.assertEqual(second[0]['seq'], seq_before)
+
+    def test_clear_resets_the_seq_counter(self):
+        hand_log.append('room-a', [{'type': 'handStart'}])
+        hand_log.clear('room-a')
+        log = hand_log.append('room-a', [{'type': 'handStart'}])
+        self.assertEqual(log[0]['seq'], 1)
+
+    def test_seq_counters_are_isolated_per_room(self):
+        hand_log.append('room-a', [{'type': 'handStart'}, {'type': 'fold'}])
+        log_b = hand_log.append('room-b', [{'type': 'handStart'}])
+        self.assertEqual(log_b[0]['seq'], 1)
