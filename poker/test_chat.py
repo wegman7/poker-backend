@@ -158,13 +158,13 @@ class TestChat(IsolatedAsyncioTestCase):
         }))
         frames = await listener
 
+        await self.websocket_user1.send(json.dumps({
+            'channelCommand': 'makeEngineCommand',
+            'engineCommand': 'stopEngine',
+        }))
+
         states = [f['event'] for f in frames
                   if f.get('event', {}).get('channelCommand') == 'sendState']
         assert states, "No state broadcast received"
         assert all(s.get('kind') == 'state' for s in states), \
             f"State broadcast missing kind: {states[0]}"
-
-        await self.websocket_user1.send(json.dumps({
-            'channelCommand': 'makeEngineCommand',
-            'engineCommand': 'stopEngine',
-        }))
