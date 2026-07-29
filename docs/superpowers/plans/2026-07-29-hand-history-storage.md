@@ -90,11 +90,6 @@ class TestLocalHandStore(TestCase):
             self.store.append('../escaped', ['x\n'])
 
 
-class TestNullHandStore(TestCase):
-    def test_append_does_nothing(self):
-        hand_store.NullHandStore().append('room-a', ['x\n'])
-
-
 class TestValidateRoomId(TestCase):
     def test_accepts_a_uuid_hex_room_id(self):
         hand_store.validate_room_id('a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d')
@@ -237,7 +232,11 @@ Run:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_store -v
 ```
-Expected: PASS — 12 tests.
+Expected: PASS — 11 tests.
+
+`NullHandStore` gets no direct test of its own: "calling it does nothing observable" cannot be
+asserted meaningfully, and `test_none_backend_builds_a_null_store` already covers the wiring that
+matters.
 
 - [ ] **Step 5: Add the settings block to `app/settings/dev.py`**
 
@@ -594,7 +593,7 @@ Run:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_store -v
 ```
-Expected: PASS — 24 tests.
+Expected: PASS — 23 tests.
 
 - [ ] **Step 6: Add the dependency**
 
@@ -612,7 +611,7 @@ Then confirm nothing else broke:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_store -v
 ```
-Expected: 24 tests still PASS. The GCS tests use injected fakes, so they pass identically before and after the install — the point of this check is that importing the real package does not disturb anything.
+Expected: 23 tests still PASS. The GCS tests use injected fakes, so they pass identically before and after the install — the point of this check is that importing the real package does not disturb anything.
 
 - [ ] **Step 7: Commit**
 
@@ -1139,7 +1138,7 @@ Run:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_log poker.test_hand_writer poker.test_hand_store -v
 ```
-Expected: PASS — all three modules, 52 tests (24 + 11 + 17).
+Expected: PASS — all three modules, 51 tests (23 + 11 + 17).
 
 - [ ] **Step 5: Confirm the consumer's other tests still pass**
 
@@ -1305,7 +1304,7 @@ Run:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_store poker.test_hand_writer poker.test_hand_log -v
 ```
-Expected: PASS — 52 tests.
+Expected: PASS — 51 tests.
 
 - [ ] **Step 7: End-to-end smoke test against the local backend**
 
@@ -1364,7 +1363,7 @@ git commit -m "docs: document hand history storage and drop stale DB plans"
 
 When all five tasks are complete:
 
-- `python -m unittest poker.test_hand_store poker.test_hand_writer poker.test_hand_log -v` passes (52 tests) with no `DJANGO_SETTINGS_MODULE` set.
+- `python -m unittest poker.test_hand_store poker.test_hand_writer poker.test_hand_log -v` passes (51 tests) with no `DJANGO_SETTINGS_MODULE` set.
 - Playing hands in dev produces `hand-histories/{room_id}.jsonl` with exactly one JSON line per hand.
 - `grep -rniE "DB persistence|DB models"` finds nothing outside the historical 2026-07-21 plan.
 - The bucket, its lifecycle rules, and the service account binding are documented in `CLAUDE.md` for the operator to apply.
