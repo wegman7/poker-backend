@@ -1,5 +1,6 @@
 .env
 db.sqlite3
+hand-histories/
 *.pyc
 requirements.in
 __pycache__

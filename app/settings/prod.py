@@ -156,3 +156,12 @@ LOGGING = {
         },
     },
 }
+
+# Hand history storage.
+# See docs/superpowers/specs/2026-07-29-hand-history-storage-design.md
+HAND_HISTORY_BACKEND = os.getenv('HAND_HISTORY_BACKEND', 'gcs')
+HAND_HISTORY_DIR = os.getenv('HAND_HISTORY_DIR', str(BASE_DIR / 'hand-histories'))
+HAND_HISTORY_BUCKET = os.getenv('HAND_HISTORY_BUCKET')
+HAND_HISTORY_PREFIX = os.getenv('HAND_HISTORY_PREFIX', 'hands/')
+HAND_HISTORY_TMP_PREFIX = os.getenv('HAND_HISTORY_TMP_PREFIX', 'tmp/')
+HAND_HISTORY_FLUSH_INTERVAL = float(os.getenv('HAND_HISTORY_FLUSH_INTERVAL', '1.0'))
