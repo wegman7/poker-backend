@@ -261,8 +261,8 @@ bucket — create, compose, and delete are all required. `hand-histories/` is ad
 
 - Records enqueued while a flush is in flight coalesce into one store call.
 - A transient store error retries and then succeeds.
-- A permanent error gives up after three attempts, logs, and leaves the worker alive for the next
-  hand.
+- A permanent error gives up after four attempts (the initial try plus three retries), logs, and
+  leaves the worker alive for the next hand.
 - With no running event loop, `enqueue` writes through synchronously.
 - The sentinel drains remaining records and exits the worker.
 - `HAND_HISTORY_BACKEND=none` performs no writes.
