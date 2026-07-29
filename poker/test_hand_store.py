@@ -45,8 +45,8 @@ class TestValidateRoomId(TestCase):
     def test_accepts_a_uuid_hex_room_id(self):
         hand_store.validate_room_id('a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d')
 
-    def test_rejects_path_separators_dots_and_empty(self):
-        for bad in ['../x', 'a/b', 'a.b', '', None, 'x' * 129]:
+    def test_rejects_path_separators_dots_newlines_and_empty(self):
+        for bad in ['../x', 'a/b', 'a.b', '', None, 'x' * 129, 'room-a\n', 'room-a\n.jsonl']:
             with self.subTest(room_id=bad):
                 with self.assertRaises(ValueError):
                     hand_store.validate_room_id(bad)

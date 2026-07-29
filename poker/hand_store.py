@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 # Room ids become path and object-name components, so keep them to characters
 # that cannot escape a directory or a GCS prefix.
-_SAFE_ROOM_ID = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
+_SAFE_ROOM_ID = re.compile(r'^[A-Za-z0-9_-]{1,128}\Z')
 
 
 def validate_room_id(room_id):
