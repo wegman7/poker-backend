@@ -26,6 +26,8 @@ class StateValidator:
         self._spotlight_since = None
         self._seen_active = False       # True once gameStopped=False observed
         self._game_stopped_since = None
+        self._hand_number = None        # handNumber of the hand currently in the action log
+        self._hand_peak_pot = 0.0
 
     def validate(self, state, timestamp):
         violations = []
@@ -35,7 +37,9 @@ class StateValidator:
             violations += self._check_community_cards_regression(prev, state)
             violations += self._check_pot_after_hand_end(prev, state)
             violations += self._check_player_disappeared(prev, state)
+            violations += self._check_chips_destroyed(prev, state)
 
+        violations += self._check_pot_fully_paid(state)
         violations += self._check_stuck_state(state)
         violations += self._check_spotlight_timeout(state, timestamp)
         violations += self._check_game_restart(state, timestamp)
@@ -70,6 +74,68 @@ class StateValidator:
         missing = prev_users - curr_users
         if missing:
             return [('PLAYER_DISAPPEARED', f'users vanished without leave command: {missing}')]
+        return []
+
+    @staticmethod
+    def _table_chips(state):
+        """Every chip in the room. The engine's pot already includes each
+        player's chipsInPot, and collectedPot is a snapshot of pot rather than a
+        second pile, so neither is added again."""
+        total = state.get('pot') or 0
+        for p in (state.get('players') or {}).values():
+            total += p.get('chips') or 0
+        return total
+
+    def _check_chips_destroyed(self, prev, curr):
+        """Chips only ever enter the room (join, addChips) — nothing removes them
+        except a player leaving. A drop means the engine lost money somewhere,
+        e.g. a payout that left chips stranded in the pot when the hand reset."""
+        prev_users = {p['user'] for p in (prev.get('players') or {}).values()}
+        curr_users = {p['user'] for p in (curr.get('players') or {}).values()}
+        if prev_users - curr_users:
+            return []  # PLAYER_DISAPPEARED owns this case; their stack left with them
+
+        before = self._table_chips(prev)
+        after = self._table_chips(curr)
+        if after < before - 0.001:
+            stacks = {p['user'][:12]: p.get('chips') for p in (curr.get('players') or {}).values()}
+            return [('CHIPS_DESTROYED',
+                     f'table total went {before} -> {after} (lost {before - after}); '
+                     f'pot={curr.get("pot")} collectedPot={curr.get("collectedPot")} stacks={stacks}')]
+        return []
+
+    def _check_pot_fully_paid(self, state):
+        """Independently of the running total: every chip that went into a hand's
+        pot must come back out as a win. Catches an underpaid winner (bad side-pot
+        cap) even if a rebuy happens to mask the drop in the table total.
+
+        actionLog is a cumulative snapshot of the hand in progress (the backend
+        clears it after handEnd), not a per-broadcast delta — so wins are
+        recomputed from the snapshot rather than accumulated."""
+        log = state.get('actionLog') or []
+        hand_start = next((e for e in log if e.get('type') == 'handStart'), None)
+        if hand_start is None:
+            return []  # between hands, or we connected mid-hand and missed the start
+
+        if hand_start.get('handNumber') != self._hand_number:
+            self._hand_number = hand_start.get('handNumber')
+            self._hand_peak_pot = 0.0
+        self._hand_peak_pot = max(self._hand_peak_pot, state.get('pot') or 0)
+
+        if not any(e.get('type') == 'handEnd' for e in log):
+            return []
+
+        wins = sum(e.get('amount') or 0 for e in log if e.get('type') == 'win')
+        peak = self._hand_peak_pot
+        self._hand_number = None
+        self._hand_peak_pot = 0.0
+
+        # peak pot is a lower bound (the engine skips a broadcast when nothing
+        # changed, so the exact peak can go unseen) — only a shortfall is real
+        if wins < peak - 0.001:
+            return [('POT_UNDERPAID',
+                     f'hand {hand_start.get("handNumber")} paid out {wins} '
+                     f'of a pot that reached {peak} ({peak - wins} unaccounted for)')]
         return []
 
     def _check_stuck_state(self, state):

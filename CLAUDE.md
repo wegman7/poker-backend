@@ -116,6 +116,8 @@ Unit tests for the decision logic: `cd agents && pytest test_agent.py`
 - Community cards never decrease in count
 - Pot and collectedPot are both 0 when a hand ends
 - No player vanishes from the players map without a leave command
+- Table chip total (`pot + Σ player chips`) never decreases between broadcasts — chips only ever enter a room, so a drop means the engine destroyed money (skipped when a player left, which the check above owns)
+- Every hand's `win` amounts add up to at least the peak pot seen during that hand — catches an underpaid winner (e.g. a stale side-pot cap) even when a rebuy masks the drop in the running total. Note `actionLog` is a *cumulative* snapshot of the hand in progress, not a per-broadcast delta, so payouts are recomputed from it rather than accumulated
 - Same state broadcast 10+ consecutive times while a hand is active (engine stuck)
 - One player holds spotlight for >60s
 - Game stays stopped for >30s after at least one hand has completed (timer deliberately does NOT reset on ready-count dips — sit chatter must not mask a stall)
