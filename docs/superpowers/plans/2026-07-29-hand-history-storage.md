@@ -40,7 +40,7 @@
   - `hand_store.LocalHandStore(base_dir)` — appends to `{base_dir}/{room_id}.jsonl`
   - `hand_store.build_store(backend, directory=None, bucket=None, prefix='hands/', tmp_prefix='tmp/') -> HandStore` — pure factory, no Django
   - `hand_store.get_hand_store() -> HandStore` — reads `django.conf.settings`, delegates to `build_store`
-  - `hand_store.validate_room_id(room_id) -> None` — raises `ValueError` on anything not `[A-Za-z0-9_-]{1,128}`
+  - `hand_store.validate_room_id(room_id) -> None` — raises `ValueError` on anything that is not a full match for `[A-Za-z0-9_-]{1,128}`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -94,8 +94,8 @@ class TestValidateRoomId(TestCase):
     def test_accepts_a_uuid_hex_room_id(self):
         hand_store.validate_room_id('a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d')
 
-    def test_rejects_path_separators_dots_and_empty(self):
-        for bad in ['../x', 'a/b', 'a.b', '', None, 'x' * 129]:
+    def test_rejects_path_separators_dots_newlines_and_empty(self):
+        for bad in ['../x', 'a/b', 'a.b', 'room-a\n', 'room-a\n.jsonl', '', None, 'x' * 129]:
             with self.subTest(room_id=bad):
                 with self.assertRaises(ValueError):
                     hand_store.validate_room_id(bad)
@@ -156,8 +156,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Room ids become path and object-name components, so keep them to characters
-# that cannot escape a directory or a GCS prefix.
-_SAFE_ROOM_ID = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
+# that cannot escape a directory or a GCS prefix. \Z, not $ — in Python $ also
+# matches just before a trailing newline, so $ would accept 'room-a\n'.
+_SAFE_ROOM_ID = re.compile(r'^[A-Za-z0-9_-]{1,128}\Z')
 
 
 def validate_room_id(room_id):
