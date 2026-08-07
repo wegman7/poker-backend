@@ -73,10 +73,6 @@ def shutdown(room_id):
     queue = _queues.get(room_id)
     if queue is not None:
         queue.put_nowait(_SHUTDOWN)
-        # Deregister immediately so a record enqueued while the worker is
-        # still writing its final batch starts a fresh worker instead of
-        # landing in this one's already-drained queue and being lost.
-        _queues.pop(room_id, None)
 
 
 async def _worker(room_id, queue):
@@ -84,6 +80,14 @@ async def _worker(room_id, queue):
 
     The trailing sleep is both the debounce that batches hands finishing back to
     back and the guard that keeps a single GCS object under its ~1 write/sec cap.
+
+    Exactly one worker ever owns a room's queue. shutdown() only pushes the
+    sentinel — it does not deregister the room — so a record enqueued after
+    shutdown() but before this worker actually exits is served by this same
+    worker instead of racing a second one for the same HandStore. Without
+    that invariant two workers could both be mid-write for the same room at
+    once, with no lock serialising their calls into the store, and writes
+    could land out of order.
     """
     task = asyncio.current_task()
     try:
@@ -96,6 +100,16 @@ async def _worker(room_id, queue):
             if batch:
                 await _write_with_retries(room_id, batch)
             if stopping:
+                # More records may have arrived while we were writing (or
+                # even before it, coalesced into this same batch already).
+                # Keep serving this room rather than returning, so a second
+                # worker never gets spun up alongside this one. No await
+                # happens between this check and the return below, so
+                # nothing can enqueue into a gap between "decided to stop"
+                # and "actually deregistered" in the finally block.
+                if not queue.empty():
+                    stopping = False
+                    continue
                 return
             await asyncio.sleep(_flush_interval)
     except asyncio.CancelledError:

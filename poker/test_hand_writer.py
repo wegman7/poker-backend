@@ -1,6 +1,7 @@
 import asyncio
 import time
 from unittest import IsolatedAsyncioTestCase, TestCase
+from unittest.mock import patch
 
 from poker import hand_store, hand_writer
 
@@ -18,6 +19,26 @@ class RecordingStore(hand_store.HandStore):
         self.attempts += 1
         if self.always_fail or self.attempts <= self.failures:
             raise RuntimeError('store unavailable')
+        self.batches.append((room_id, list(lines)))
+
+
+class SlowFirstAppendStore(hand_store.HandStore):
+    """Blocks (with a real thread sleep) on its first append only.
+
+    Models a store whose first write is slow enough for a second `enqueue`
+    to land while the worker is still mid-write, without slowing down every
+    write in the test.
+    """
+
+    def __init__(self, delay):
+        self.delay = delay
+        self.batches = []
+        self._first = True
+
+    def append(self, room_id, lines):
+        if self._first:
+            self._first = False
+            time.sleep(self.delay)
         self.batches.append((room_id, list(lines)))
 
 
@@ -115,6 +136,58 @@ class TestHandWriter(IsolatedAsyncioTestCase):
         self.assertEqual(self.store.batches, [('room-a', ['{"handNumber":2}\n'])])
         self.assertIs(hand_writer._workers.get('room-a'), worker_task)
 
+    async def test_a_retry_backoff_shorter_than_max_attempts_still_drops_without_crashing(self):
+        # len(retry_backoff) < MAX_ATTEMPTS - 1: indexing must clamp instead
+        # of raising IndexError partway through the retry loop.
+        hand_writer.configure(self.store, flush_interval=0, retry_backoff=(0,))
+        self.store.always_fail = True
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        worker_task = hand_writer._workers['room-a']
+        await wait_for(lambda: self.store.attempts == 4)
+        await asyncio.sleep(0.05)
+        self.assertEqual(self.store.attempts, 4)
+        self.assertEqual(self.store.batches, [])
+        # The worker must still be alive, not killed by an IndexError and
+        # logged as "writer stopped" instead of "dropping N record(s)".
+        self.assertIs(hand_writer._workers.get('room-a'), worker_task)
+        self.store.always_fail = False
+        hand_writer.enqueue('room-a', {'handNumber': 2})
+        await wait_for(lambda: self.store.batches)
+        self.assertEqual(self.store.batches, [('room-a', ['{"handNumber":2}\n'])])
+
+    async def test_an_empty_retry_backoff_still_drops_without_crashing(self):
+        hand_writer.configure(self.store, flush_interval=0, retry_backoff=())
+        self.store.always_fail = True
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        worker_task = hand_writer._workers['room-a']
+        await wait_for(lambda: self.store.attempts == 4)
+        await asyncio.sleep(0.05)
+        self.assertEqual(self.store.attempts, 4)
+        self.assertEqual(self.store.batches, [])
+        self.assertIs(hand_writer._workers.get('room-a'), worker_task)
+
+    async def test_a_create_task_failure_leaves_the_room_unregistered(self):
+        loop = asyncio.get_running_loop()
+
+        def failing_create_task(coro, *args, **kwargs):
+            coro.close()  # avoid a "coroutine was never awaited" warning
+            raise RuntimeError('scheduling failed')
+
+        with patch.object(loop, 'create_task', side_effect=failing_create_task):
+            hand_writer.enqueue('room-a', {'handNumber': 1})
+
+        # The queue must not be registered without a worker to drain it -
+        # otherwise every later enqueue for this room silently piles up
+        # with nobody reading it.
+        self.assertNotIn('room-a', hand_writer._queues)
+        self.assertNotIn('room-a', hand_writer._workers)
+
+        # A later enqueue, with create_task working again, must succeed
+        # normally.
+        hand_writer.enqueue('room-a', {'handNumber': 2})
+        await wait_for(lambda: self.store.batches)
+        self.assertEqual(self.store.batches, [('room-a', ['{"handNumber":2}\n'])])
+
     async def test_shutdown_drains_pending_records_and_stops_the_worker(self):
         hand_writer.enqueue('room-a', {'handNumber': 1})
         hand_writer.shutdown('room-a')
@@ -161,4 +234,38 @@ class TestFlushIntervalOrdering(IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         self.assertEqual(len(self.store.batches), 1)
         await wait_for(lambda: len(self.store.batches) == 2)
+        self.assertEqual(self.store.batches[1], ('room-a', ['{"handNumber":2}\n']))
+
+
+class TestShutdownThenEnqueuePreservesOrder(IsolatedAsyncioTestCase):
+    """Regression test for the round-2 finding: shutdown() must not let a
+    second worker race the first one for the same room.
+
+    Reproduces the re-reviewer's scenario: the room's single worker is still
+    mid-write for hand #1 (its store sleeps on the first append only) when
+    `shutdown()` fires, immediately followed by a second `enqueue` with no
+    intervening await. If `shutdown()` deregistered the room eagerly (the
+    round-1 behavior), that `enqueue` would spin up a brand-new worker, and
+    hand #2 could reach the store before the still-in-flight hand #1 does -
+    an out-of-order record in what must be an append-only chronological log.
+    """
+
+    def setUp(self):
+        self.store = SlowFirstAppendStore(delay=0.1)
+        hand_writer.configure(self.store, flush_interval=0, retry_backoff=(0, 0, 0))
+
+    async def asyncTearDown(self):
+        tasks = list(hand_writer._workers.values())
+        hand_writer.reset()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_records_reach_the_store_in_enqueue_order(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        # Give the worker a turn to pick up hand #1 and enter its slow
+        # write before we shut it down.
+        await asyncio.sleep(0.02)
+        hand_writer.shutdown('room-a')
+        hand_writer.enqueue('room-a', {'handNumber': 2})
+        await wait_for(lambda: len(self.store.batches) == 2)
+        self.assertEqual(self.store.batches[0], ('room-a', ['{"handNumber":1}\n']))
         self.assertEqual(self.store.batches[1], ('room-a', ['{"handNumber":2}\n']))
