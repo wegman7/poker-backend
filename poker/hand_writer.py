@@ -58,8 +58,11 @@ def enqueue(room_id, record):
         queue = _queues.get(room_id)
         if queue is None:
             queue = asyncio.Queue()
+            # Register the task only once it exists, so a failure inside
+            # create_task cannot leave a queue with nobody draining it.
+            task = loop.create_task(_worker(room_id, queue))
             _queues[room_id] = queue
-            _workers[room_id] = loop.create_task(_worker(room_id, queue))
+            _workers[room_id] = task
         queue.put_nowait(record)
     except Exception:
         logger.exception('could not record hand history for room %s', room_id)
@@ -70,6 +73,10 @@ def shutdown(room_id):
     queue = _queues.get(room_id)
     if queue is not None:
         queue.put_nowait(_SHUTDOWN)
+        # Deregister immediately so a record enqueued while the worker is
+        # still writing its final batch starts a fresh worker instead of
+        # landing in this one's already-drained queue and being lost.
+        _queues.pop(room_id, None)
 
 
 async def _worker(room_id, queue):
@@ -78,6 +85,7 @@ async def _worker(room_id, queue):
     The trailing sleep is both the debounce that batches hands finishing back to
     back and the guard that keeps a single GCS object under its ~1 write/sec cap.
     """
+    task = asyncio.current_task()
     try:
         while True:
             batch = [await queue.get()]
@@ -95,8 +103,14 @@ async def _worker(room_id, queue):
     except Exception:
         logger.exception('hand history writer for room %s stopped', room_id)
     finally:
-        _queues.pop(room_id, None)
-        _workers.pop(room_id, None)
+        # Compare identity, not just key: shutdown() or a cancelled
+        # predecessor's teardown may already have let a new queue/task claim
+        # this room_id, and popping by key alone would deregister that
+        # replacement instead of this (finished) worker.
+        if _queues.get(room_id) is queue:
+            _queues.pop(room_id, None)
+        if _workers.get(room_id) is task:
+            _workers.pop(room_id, None)
 
 
 def _drain(queue):
@@ -126,7 +140,12 @@ async def _write_with_retries(room_id, records):
                     exc_info=True,
                 )
                 return
-            await asyncio.sleep(_retry_backoff[attempt])
+            if _retry_backoff:
+                # Clamp rather than index directly: MAX_ATTEMPTS and
+                # len(_retry_backoff) are independently configurable (via
+                # configure()), and a mismatch here must not turn into an
+                # IndexError that kills the worker mid-batch.
+                await asyncio.sleep(_retry_backoff[min(attempt, len(_retry_backoff) - 1)])
 
 
 def _write(room_id, records):

@@ -103,11 +103,17 @@ class TestHandWriter(IsolatedAsyncioTestCase):
     async def test_the_worker_survives_a_dropped_batch(self):
         self.store.always_fail = True
         hand_writer.enqueue('room-a', {'handNumber': 1})
+        # Captured before the batch is dropped: if the worker died and a
+        # fresh one spun up for the next enqueue, this identity check catches
+        # it even though the store-level assertions below could not tell the
+        # difference.
+        worker_task = hand_writer._workers['room-a']
         await wait_for(lambda: self.store.attempts == 4)
         self.store.always_fail = False
         hand_writer.enqueue('room-a', {'handNumber': 2})
         await wait_for(lambda: self.store.batches)
         self.assertEqual(self.store.batches, [('room-a', ['{"handNumber":2}\n'])])
+        self.assertIs(hand_writer._workers.get('room-a'), worker_task)
 
     async def test_shutdown_drains_pending_records_and_stops_the_worker(self):
         hand_writer.enqueue('room-a', {'handNumber': 1})
@@ -120,5 +126,39 @@ class TestHandWriter(IsolatedAsyncioTestCase):
         hand_writer.shutdown('room-a')
         await wait_for(lambda: 'room-a' not in hand_writer._workers)
         hand_writer.enqueue('room-a', {'handNumber': 2})
+        await wait_for(lambda: len(self.store.batches) == 2)
+        self.assertEqual(self.store.batches[1], ('room-a', ['{"handNumber":2}\n']))
+
+
+class TestFlushIntervalOrdering(IsolatedAsyncioTestCase):
+    """Pins the trailing sleep to run after the write, not before.
+
+    Every test above uses flush_interval=0, which makes the sleep a bare
+    yield with no observable position. These use a small nonzero interval so
+    a write that is still waiting on its sleep is distinguishable from one
+    that already went through.
+    """
+
+    def setUp(self):
+        self.store = RecordingStore()
+        hand_writer.configure(self.store, flush_interval=0.2, retry_backoff=(0, 0, 0))
+
+    async def asyncTearDown(self):
+        tasks = list(hand_writer._workers.values())
+        hand_writer.reset()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_the_first_record_is_written_promptly_not_after_a_full_interval(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        # If the sleep ran before the write, this would not show up until
+        # ~0.2s, past this timeout.
+        await wait_for(lambda: self.store.batches, timeout=0.15)
+
+    async def test_a_later_record_waits_out_the_debounce_before_writing(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        await wait_for(lambda: self.store.batches, timeout=0.15)
+        hand_writer.enqueue('room-a', {'handNumber': 2})
+        await asyncio.sleep(0.1)
+        self.assertEqual(len(self.store.batches), 1)
         await wait_for(lambda: len(self.store.batches) == 2)
         self.assertEqual(self.store.batches[1], ('room-a', ['{"handNumber":2}\n']))
