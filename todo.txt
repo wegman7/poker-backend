@@ -1,6 +1,24 @@
+bugs:
+- prod.py defines no ROOT_URLCONF, so every http request 500s in production
+  (asgi.py routes "http" to get_asgi_application). confirmed under prod settings:
+  AttributeError: 'Settings' object has no attribute 'ROOT_URLCONF'. one-line fix:
+  ROOT_URLCONF = "app.urls". this also makes /room-health unreachable in prod, which
+  is where hand-history storage status is reported
+
 backlog:
 - set up logging correctly
 - clean up auth0_util.py with only things that we need
 - make hiding opponents cards more efficient (using deepcopy currently)
 - also need to figure out how we want to handle closing engine when players no longer connected - should be some sort of timeout
 - add automatic refreshing of tokens
+- hand history: startup validation can't catch a bad bucket name or missing IAM.
+  Client.bucket() makes no http request, so GcsHandStore constructs fine either way
+  and the failure only shows up per-batch. a bucket.exists() probe in
+  PokerConfig.ready() would make a typo'd HAND_HISTORY_BUCKET loud at boot
+- hand history: hand_writer's single-writer-per-room invariant is correct but
+  unenforced - it rests on the "await-free from here to the return" comment in
+  _worker. a reviewer deleted the identity guard backing it and all tests stayed
+  green. a small _RoomWriter object owning queue+task+stopping would make the
+  ownership structural instead of a scheduling accident. three fix rounds went into
+  this area (lost record -> reordered writes -> leaked worker), so the next edit
+  there deserves the guardrail
