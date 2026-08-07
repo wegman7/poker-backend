@@ -840,8 +840,11 @@ def enqueue(room_id, record):
         queue = _queues.get(room_id)
         if queue is None:
             queue = asyncio.Queue()
+            # Register the task only once it exists, so a failure inside
+            # create_task cannot leave a queue with nobody draining it.
+            task = loop.create_task(_worker(room_id, queue))
             _queues[room_id] = queue
-            _workers[room_id] = loop.create_task(_worker(room_id, queue))
+            _workers[room_id] = task
         queue.put_nowait(record)
     except Exception:
         logger.exception('could not record hand history for room %s', room_id)
@@ -859,17 +862,39 @@ async def _worker(room_id, queue):
 
     The trailing sleep is both the debounce that batches hands finishing back to
     back and the guard that keeps a single GCS object under its ~1 write/sec cap.
+
+    Exactly one worker ever owns a room's queue. shutdown() only pushes the
+    sentinel — it does not deregister the room — so a record enqueued after
+    shutdown() but before this worker actually exits is served by this same
+    worker instead of racing a second one for the same HandStore. Without
+    that invariant two workers could both be mid-write for the same room at
+    once, with no lock serialising their calls into the store, and writes
+    could land out of order.
     """
+    task = asyncio.current_task()
+    stopping = False
     try:
         while True:
             batch = [await queue.get()]
             batch.extend(_drain(queue))
-            stopping = _SHUTDOWN in batch
-            if stopping:
+            if _SHUTDOWN in batch:
+                # Sticky: once a shutdown is seen it must never be forgotten,
+                # even if this particular drained batch still has more
+                # records to serve after it. Recomputing this from scratch
+                # each iteration (instead of only ever setting it True) is
+                # what let a shutdown seen alongside other records in the
+                # same batch get silently dropped, leaking the worker
+                # forever at the queue.get() below.
+                stopping = True
                 batch = [record for record in batch if record is not _SHUTDOWN]
             if batch:
                 await _write_with_retries(room_id, batch)
-            if stopping:
+            # Await-free from here to the return: an await in this window
+            # would let a same-room enqueue land after we have decided to
+            # stop but before the finally block deregisters us, reopening
+            # the two-worker reordering race that a single worker per room
+            # is meant to prevent.
+            if stopping and queue.empty():
                 return
             await asyncio.sleep(_flush_interval)
     except asyncio.CancelledError:
@@ -877,8 +902,14 @@ async def _worker(room_id, queue):
     except Exception:
         logger.exception('hand history writer for room %s stopped', room_id)
     finally:
-        _queues.pop(room_id, None)
-        _workers.pop(room_id, None)
+        # Compare identity, not just key: shutdown() or a cancelled
+        # predecessor's teardown may already have let a new queue/task claim
+        # this room_id, and popping by key alone would deregister that
+        # replacement instead of this (finished) worker.
+        if _queues.get(room_id) is queue:
+            _queues.pop(room_id, None)
+        if _workers.get(room_id) is task:
+            _workers.pop(room_id, None)
 
 
 def _drain(queue):
@@ -908,7 +939,12 @@ async def _write_with_retries(room_id, records):
                     exc_info=True,
                 )
                 return
-            await asyncio.sleep(_retry_backoff[attempt])
+            if _retry_backoff:
+                # Clamp rather than index directly: MAX_ATTEMPTS and
+                # len(_retry_backoff) are independently configurable (via
+                # configure()), and a mismatch here must not turn into an
+                # IndexError that kills the worker mid-batch.
+                await asyncio.sleep(_retry_backoff[min(attempt, len(_retry_backoff) - 1)])
 
 
 def _write(room_id, records):
@@ -926,7 +962,29 @@ def _get_store():
     return _store
 ```
 
-Note on the sync path: `_write` can raise, and the surrounding `except Exception` in `enqueue` is what swallows it — that is exactly what `test_a_store_failure_is_swallowed` checks. The sync path deliberately does not retry; there is no loop to sleep in.
+Note on the sync path: `_write` can raise, and the surrounding `except Exception` in `enqueue` is what
+swallows it — that is exactly what `test_a_store_failure_is_swallowed` checks. The sync path
+deliberately does not retry; there is no loop to sleep in.
+
+**This code is the post-review version.** Three fix rounds hardened the original draft, and the
+corrections are load-bearing — do not simplify them back:
+- `stopping` is sticky, set once outside the loop and never recomputed. Recomputing it per
+  iteration let a shutdown that arrived alongside records in one batch be filtered away with
+  them, leaking a worker that never exits.
+- `shutdown()` only pushes the sentinel; it must not deregister the room. Eagerly popping
+  `_queues` let a second worker start while the first was still flushing, and two unsynchronised
+  writers reordered records in an append-only log.
+- The window from `if stopping and queue.empty()` through the `finally` must stay await-free.
+  Any yield point there reopens that same two-worker race.
+- The `finally` deregisters by identity, not by key, so a cancelled predecessor cannot remove its
+  own replacement.
+- The retry backoff index is clamped, so a `configure()` call whose `retry_backoff` is shorter
+  than `MAX_ATTEMPTS - 1` cannot raise `IndexError` and kill the worker mid-batch.
+- The queue and task are registered only after `create_task` returns, so a failure there cannot
+  strand a queue with nobody draining it.
+
+The matching tests in `test_hand_writer.py` grew to 18 accordingly; each of the above has a
+regression test verified to fail against the defect it guards.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -934,7 +992,7 @@ Run:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_writer -v
 ```
-Expected: PASS — 11 tests.
+Expected: PASS — 18 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1139,7 +1197,7 @@ Run:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_log poker.test_hand_writer poker.test_hand_store -v
 ```
-Expected: PASS — all three modules, 51 tests (23 + 11 + 17).
+Expected: PASS — all three modules, 58 tests (23 + 18 + 17).
 
 - [ ] **Step 5: Confirm the consumer's other tests still pass**
 
@@ -1305,7 +1363,7 @@ Run:
 ```bash
 cd /Users/challenger/prog/poker-workspace/poker-backend && source .venv/bin/activate && python -m unittest poker.test_hand_store poker.test_hand_writer poker.test_hand_log -v
 ```
-Expected: PASS — 51 tests.
+Expected: PASS — 58 tests.
 
 - [ ] **Step 7: End-to-end smoke test against the local backend**
 
@@ -1364,7 +1422,7 @@ git commit -m "docs: document hand history storage and drop stale DB plans"
 
 When all five tasks are complete:
 
-- `python -m unittest poker.test_hand_store poker.test_hand_writer poker.test_hand_log -v` passes (51 tests) with no `DJANGO_SETTINGS_MODULE` set.
+- `python -m unittest poker.test_hand_store poker.test_hand_writer poker.test_hand_log -v` passes (58 tests) with no `DJANGO_SETTINGS_MODULE` set.
 - Playing hands in dev produces `hand-histories/{room_id}.jsonl` with exactly one JSON line per hand.
 - `grep -rniE "DB persistence|DB models"` finds nothing outside the historical 2026-07-21 plan.
 - The bucket, its lifecycle rules, and the service account binding are documented in `CLAUDE.md` for the operator to apply.
