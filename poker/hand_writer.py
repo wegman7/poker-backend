@@ -130,6 +130,10 @@ async def _worker(room_id, queue):
     """
     task = asyncio.current_task()
     stopping = False
+    # Only ever nonzero while a write is actually in flight, so the
+    # cancellation log below can report what is being lost rather than what
+    # was already written.
+    in_flight = 0
     try:
         while True:
             batch = [await queue.get()]
@@ -145,7 +149,9 @@ async def _worker(room_id, queue):
                 stopping = True
                 batch = [record for record in batch if record is not _SHUTDOWN]
             if batch:
+                in_flight = len(batch)
                 await _write_with_retries(room_id, batch)
+                in_flight = 0
             # Await-free from here to the return: an await in this window
             # would let a same-room enqueue land after we have decided to
             # stop but before the finally block deregisters us, reopening
@@ -155,6 +161,16 @@ async def _worker(room_id, queue):
                 return
             await asyncio.sleep(_flush_interval)
     except asyncio.CancelledError:
+        # Cloud Run cancels every task on deploy. Without this line the
+        # records that were mid-flight or still queued disappear with no
+        # trace at all, which makes a post-deploy gap in a room's history
+        # impossible to tell apart from a storage failure.
+        logger.warning(
+            'hand history writer for room %s cancelled with %d record(s) '
+            'unwritten',
+            room_id,
+            in_flight + queue.qsize(),
+        )
         raise
     except Exception:
         logger.exception('hand history writer for room %s stopped', room_id)

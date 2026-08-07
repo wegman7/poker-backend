@@ -1,6 +1,9 @@
+import logging
 from uuid import uuid4
 
 from poker import hand_writer
+
+logger = logging.getLogger(__name__)
 
 # room_name -> ordered list of engine event dicts for the hand in progress
 _current_hands = {}
@@ -74,13 +77,24 @@ def build_record(room_name, hand_record):
 
 
 def persist_hand(room_name, hand_record):
-    """Hand a completed hand off to the background writer.
+    """Hand a completed hand off to the background writer. Never raises.
 
     hand_record is the hand's full ordered event list (handStart ... handEnd),
     stored verbatim and unmasked so a future retrieval API can render it or
     hide what it needs to.
+
+    build_record runs inside the try, not as an argument to enqueue: this is
+    called from EngineConsumer.send_state, and hand_writer.enqueue's "never
+    raises" guarantee only covers what happens after it is entered. Building
+    the envelope outside it left the guarantee resting on an unstated
+    invariant about what build_record can do with the engine's events.
     """
-    hand_writer.enqueue(room_name, build_record(room_name, hand_record))
+    try:
+        record = build_record(room_name, hand_record)
+    except Exception:
+        logger.exception('could not build a hand history record for room %s', room_name)
+        return
+    hand_writer.enqueue(room_name, record)
 
 
 def _session_id(room_name):

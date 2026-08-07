@@ -422,6 +422,44 @@ class TestShutdownThenEnqueuePreservesOrder(IsolatedAsyncioTestCase):
         self.assertEqual(self.store.batches[1], ('room-a', ['{"handNumber":2}\n']))
 
 
+class TestCancellationIsLogged(IsolatedAsyncioTestCase):
+    """Cloud Run cancels every task on deploy, so this path runs on every
+    single deploy - and used to leave no trace of the records it dropped."""
+
+    def setUp(self):
+        self.store = SlowFirstAppendStore(delay=0.2)
+        hand_writer.configure(self.store, flush_interval=0, retry_backoff=(0, 0, 0))
+
+    async def asyncTearDown(self):
+        tasks = list(hand_writer._workers.values())
+        hand_writer.reset()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_a_cancelled_worker_names_the_room_and_the_records_it_drops(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        # Let the worker pick hand #1 up and enter its slow write, then queue
+        # a second hand behind it: one in flight, one still queued.
+        await asyncio.sleep(0.02)
+        hand_writer.enqueue('room-a', {'handNumber': 2})
+        task = hand_writer._workers['room-a']
+        with self.assertLogs('poker.hand_writer', level='WARNING') as logs:
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn('room-a', logs.output[0])
+        self.assertIn('2 record(s)', logs.output[0])
+
+    async def test_the_cancellation_still_propagates(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        await asyncio.sleep(0.02)
+        task = hand_writer._workers['room-a']
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(task.cancelled())
+
+
 class TestShutdownSeenInTheSameBatchStillExits(IsolatedAsyncioTestCase):
     """Regression test for the round-3 finding: a shutdown seen alongside
     other records in the very first drained batch must not be forgotten.

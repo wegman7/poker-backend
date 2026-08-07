@@ -130,6 +130,30 @@ class TestHandLog(TestCase):
         self.assertIsNone(record['endedAt'])
         self.assertIsNone(record['handNumber'])
 
+    def test_a_failure_building_the_record_never_reaches_the_caller(self):
+        # persist_hand is called from EngineConsumer.send_state, so nothing
+        # here may propagate. hand_writer.enqueue's "never raises" guarantee
+        # starts when enqueue is entered, which is why build_record has to be
+        # called from inside the protected region rather than as an argument.
+        with patch.object(hand_log, 'build_record', side_effect=RuntimeError('boom')):
+            with self.assertLogs('poker.hand_log', level='ERROR') as logs:
+                snapshot = hand_log.append('room-a', [
+                    {'type': 'handStart', 'handNumber': 1},
+                    {'type': 'handEnd', 'handNumber': 1},
+                ])
+        self.assertIn('room-a', logs.output[0])
+        # The hand still rolls over: a persistence problem must not wedge the
+        # in-memory log for the next hand either.
+        self.assertEqual([e['type'] for e in snapshot], ['handStart', 'handEnd'])
+        self.assertEqual(hand_log.current('room-a'), [])
+
+    def test_a_build_failure_does_not_enqueue_a_partial_record(self):
+        with patch.object(hand_log, 'build_record', side_effect=RuntimeError('boom')):
+            with patch.object(hand_writer, 'enqueue') as mock_enqueue:
+                with self.assertLogs('poker.hand_log', level='ERROR'):
+                    hand_log.append('room-a', [{'type': 'handEnd', 'handNumber': 1}])
+        mock_enqueue.assert_not_called()
+
     def test_clear_shuts_the_writer_down(self):
         with patch.object(hand_writer, 'shutdown') as mock_shutdown:
             hand_log.clear('room-a')

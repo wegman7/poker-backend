@@ -71,7 +71,8 @@ Deploys to Google Cloud Run. ASGI server: Daphne on port 8000.
 ### Hand history bucket (one-time setup)
 
 ```bash
-gcloud storage buckets create gs://poker-hand-histories --location=us-central1 --project=poker-451119
+gcloud storage buckets create gs://poker-hand-histories --location=us-central1 --project=poker-451119 \
+  --uniform-bucket-level-access
 gcloud storage buckets update gs://poker-hand-histories --lifecycle-file=docs/hand-history-lifecycle.json
 gcloud storage buckets add-iam-policy-binding gs://poker-hand-histories \
   --member=serviceAccount:<cloud-run-service-account> \
@@ -79,7 +80,11 @@ gcloud storage buckets add-iam-policy-binding gs://poker-hand-histories \
 ```
 
 `objectAdmin` is the minimum that covers all three operations an append needs: create, compose, and
-delete. Set `HAND_HISTORY_BUCKET=poker-hand-histories` in `.env.prod`.
+delete. `--uniform-bucket-level-access` turns off per-object ACLs, without which `objectAdmin` also
+confers the right to edit each object's ACL — a wider grant than the writer needs. Note also that
+GCS soft delete is **on by default with a 7-day retention**, so objects removed by the lifecycle
+rules above are retained (and billed) for a further 7 days before they actually go away. Set
+`HAND_HISTORY_BUCKET=poker-hand-histories` in `.env.prod`.
 
 ## Key Patterns
 
@@ -125,7 +130,7 @@ python runner.py \
 
 Unit tests for the decision logic: `cd agents && pytest test_agent.py`
 
-**Health check endpoint** (added as part of this): `GET /health/<room_id>/` returns engine connectivity status, seconds since last state broadcast, and player count. Polled every 5s by the runner.
+**Health check endpoint** (added as part of this): `GET /health/<room_id>/` returns engine connectivity status, seconds since last state broadcast, player count, and a process-wide `hand_history` block (which store is configured, how many batches have been dropped, and when the last write failed). Polled every 5s by the runner.
 
 **What gets checked per broadcast:**
 - No state received within 10s of joining
@@ -152,9 +157,11 @@ On any violation the runner logs the rule, details, and last 5 state snapshots, 
 
 ## Storage
 
-No ORM models are defined. Live game state is entirely in-memory (GameEngine) + Redis. SQLite is
-configured because Django's admin, auth and sessions apps require a database, but the poker app
-writes nothing to it.
+No ORM models are defined. Live game state is entirely in-memory (GameEngine) + Redis. Nothing in
+the poker app reads or writes a database. `app/settings/dev.py` points `DATABASES` at a SQLite file
+so that `manage.py` and the admin/auth/sessions apps have somewhere to go in development;
+`app/settings/prod.py` defines no `DATABASES` at all, and production runs fine without one because
+nothing on the WebSocket or health-check paths touches the ORM.
 
 **Hand histories** are dumped to append-only NDJSON files, one per room, one line per completed
 hand — see [docs/superpowers/specs/2026-07-29-hand-history-storage-design.md](docs/superpowers/specs/2026-07-29-hand-history-storage-design.md).
