@@ -1,4 +1,7 @@
 import logging
+from uuid import uuid4
+
+from poker import hand_writer
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +12,11 @@ _current_hands = {}
 # when a hand ends, so clients can dedupe accumulated events by seq even though
 # _current_hands rolls over on every handEnd.
 _seq_counters = {}
+
+# room_name -> uuid for the current engine session. The engine resets its hand
+# numbers to 0 on every restart, so a room's history file can hold several
+# different "hand 7"s; the session id is what tells them apart.
+_session_ids = {}
 
 
 def append(room_name, events):
@@ -42,16 +50,45 @@ def current(room_name):
 def clear(room_name):
     _current_hands.pop(room_name, None)
     _seq_counters.pop(room_name, None)
+    _session_ids.pop(room_name, None)
+    hand_writer.shutdown(room_name)
+
+
+def build_record(room_name, hand_record):
+    """Wrap a completed hand's events in the stored NDJSON envelope.
+
+    The envelope lets a retrieval API filter by room, session and hand without
+    parsing the event list.
+    """
+    hand_numbers = [
+        event['handNumber'] for event in hand_record if event.get('handNumber') is not None
+    ]
+    timestamps = [
+        event['timestamp'] for event in hand_record if event.get('timestamp') is not None
+    ]
+    return {
+        'roomId': room_name,
+        'sessionId': _session_id(room_name),
+        'handNumber': hand_numbers[0] if hand_numbers else None,
+        'startedAt': timestamps[0] if timestamps else None,
+        'endedAt': timestamps[-1] if timestamps else None,
+        'events': hand_record,
+    }
 
 
 def persist_hand(room_name, hand_record):
-    """Hook for saving completed hands.
+    """Hand a completed hand off to the background writer.
 
     hand_record is the hand's full ordered event list (handStart ... handEnd),
-    sufficient to render an OHH/PokerStars-style hand history. DB persistence
-    will be implemented here later.
+    stored verbatim and unmasked so a future retrieval API can render it or
+    hide what it needs to.
     """
-    logger.info(
-        "Hand complete in room %s: %d events (persistence not yet implemented)",
-        room_name, len(hand_record),
-    )
+    hand_writer.enqueue(room_name, build_record(room_name, hand_record))
+
+
+def _session_id(room_name):
+    session_id = _session_ids.get(room_name)
+    if session_id is None:
+        session_id = uuid4().hex
+        _session_ids[room_name] = session_id
+    return session_id
