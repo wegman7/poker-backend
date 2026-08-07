@@ -269,3 +269,44 @@ class TestShutdownThenEnqueuePreservesOrder(IsolatedAsyncioTestCase):
         await wait_for(lambda: len(self.store.batches) == 2)
         self.assertEqual(self.store.batches[0], ('room-a', ['{"handNumber":1}\n']))
         self.assertEqual(self.store.batches[1], ('room-a', ['{"handNumber":2}\n']))
+
+
+class TestShutdownSeenInTheSameBatchStillExits(IsolatedAsyncioTestCase):
+    """Regression test for the round-3 finding: a shutdown seen alongside
+    other records in the very first drained batch must not be forgotten.
+
+    `enqueue` and `shutdown` land in the same tick here, so the sentinel is
+    coalesced into the *first* batch the worker ever drains - the branch
+    the round-2 ordering test never reached (there, the sentinel always
+    arrived after hand #1 had already been drained on its own). Without a
+    sticky `stopping` flag, filtering the sentinel out of that first batch
+    discards the shutdown request entirely: later records still get served
+    (by this same worker, correctly, since the single-worker-per-room
+    invariant holds), but the worker itself never exits - it leaks forever
+    parked at `await queue.get()`.
+    """
+
+    def setUp(self):
+        self.store = SlowFirstAppendStore(delay=0.1)
+        hand_writer.configure(self.store, flush_interval=0, retry_backoff=(0, 0, 0))
+
+    async def asyncTearDown(self):
+        tasks = list(hand_writer._workers.values())
+        hand_writer.reset()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_a_late_record_is_served_and_the_worker_still_exits(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        hand_writer.shutdown('room-a')
+        # No await above: hand #1 and the sentinel are both already queued
+        # before the worker ever runs, so they land in one drained batch
+        # and `stopping` is set on the worker's very first iteration, while
+        # it is still inside the (slow) first write.
+        await asyncio.sleep(0.02)
+        hand_writer.enqueue('room-a', {'handNumber': 2})
+        await wait_for(lambda: len(self.store.batches) == 2)
+        self.assertEqual(self.store.batches[0], ('room-a', ['{"handNumber":1}\n']))
+        self.assertEqual(self.store.batches[1], ('room-a', ['{"handNumber":2}\n']))
+        # The leak: without a sticky stopping flag, the worker would still
+        # be registered here, parked at queue.get() forever.
+        await wait_for(lambda: 'room-a' not in hand_writer._workers)

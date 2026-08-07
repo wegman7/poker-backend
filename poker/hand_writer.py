@@ -90,26 +90,29 @@ async def _worker(room_id, queue):
     could land out of order.
     """
     task = asyncio.current_task()
+    stopping = False
     try:
         while True:
             batch = [await queue.get()]
             batch.extend(_drain(queue))
-            stopping = _SHUTDOWN in batch
-            if stopping:
+            if _SHUTDOWN in batch:
+                # Sticky: once a shutdown is seen it must never be forgotten,
+                # even if this particular drained batch still has more
+                # records to serve after it. Recomputing this from scratch
+                # each iteration (instead of only ever setting it True) is
+                # what let a shutdown seen alongside other records in the
+                # same batch get silently dropped, leaking the worker
+                # forever at the queue.get() below.
+                stopping = True
                 batch = [record for record in batch if record is not _SHUTDOWN]
             if batch:
                 await _write_with_retries(room_id, batch)
-            if stopping:
-                # More records may have arrived while we were writing (or
-                # even before it, coalesced into this same batch already).
-                # Keep serving this room rather than returning, so a second
-                # worker never gets spun up alongside this one. No await
-                # happens between this check and the return below, so
-                # nothing can enqueue into a gap between "decided to stop"
-                # and "actually deregistered" in the finally block.
-                if not queue.empty():
-                    stopping = False
-                    continue
+            # Await-free from here to the return: an await in this window
+            # would let a same-room enqueue land after we have decided to
+            # stop but before the finally block deregisters us, reopening
+            # the two-worker reordering race that a single worker per room
+            # is meant to prevent.
+            if stopping and queue.empty():
                 return
             await asyncio.sleep(_flush_interval)
     except asyncio.CancelledError:
