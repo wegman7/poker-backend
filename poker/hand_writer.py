@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 
 from poker import hand_store
 
@@ -18,6 +19,12 @@ _store = None
 _flush_interval = 1.0
 _retry_backoff = (0.5, 2.0, 8.0)
 
+# Dropped-batch counters, surfaced by status() through the health endpoint.
+# Without them a typo'd bucket name loses 100% of hand history while the
+# endpoint still reports the room healthy.
+_dropped_batches = 0
+_last_failure_at = None
+
 
 def configure(store, flush_interval=1.0, retry_backoff=(0.5, 2.0, 8.0)):
     """Install an explicit store, bypassing Django settings. Tests use this."""
@@ -27,9 +34,39 @@ def configure(store, flush_interval=1.0, retry_backoff=(0.5, 2.0, 8.0)):
     _retry_backoff = retry_backoff
 
 
+def initialize():
+    """Build and install the configured store. Raises if it cannot be built.
+
+    Called eagerly from PokerConfig.ready() so a bad HAND_HISTORY_* setting is
+    reported at startup rather than only as a dropped batch an hour later, and
+    lazily from _get_store() for the paths that never went through app startup.
+    """
+    global _store, _flush_interval
+    from django.conf import settings
+
+    store = hand_store.get_hand_store()
+    _flush_interval = float(getattr(settings, 'HAND_HISTORY_FLUSH_INTERVAL', 1.0))
+    _store = store
+    return store
+
+
+def status():
+    """Report storage configuration and write failures, for the health endpoint.
+
+    The accessor exists so views do not have to read this module's globals.
+    """
+    return {
+        'store_configured': _store is not None,
+        'store': type(_store).__name__ if _store is not None else None,
+        'dropped_batches': _dropped_batches,
+        'last_failure_at': _last_failure_at,
+    }
+
+
 def reset():
     """Cancel every worker and restore module defaults. Tests only."""
     global _store, _flush_interval, _retry_backoff
+    global _dropped_batches, _last_failure_at
     for task in list(_workers.values()):
         task.cancel()
     _queues.clear()
@@ -37,6 +74,8 @@ def reset():
     _store = None
     _flush_interval = 1.0
     _retry_backoff = (0.5, 2.0, 8.0)
+    _dropped_batches = 0
+    _last_failure_at = None
 
 
 def enqueue(room_id, record):
@@ -141,12 +180,15 @@ def _drain(queue):
 
 
 async def _write_with_retries(room_id, records):
+    global _dropped_batches, _last_failure_at
     for attempt in range(MAX_ATTEMPTS):
         try:
             await asyncio.to_thread(_write, room_id, records)
             return
         except Exception:
             if attempt == MAX_ATTEMPTS - 1:
+                _dropped_batches += 1
+                _last_failure_at = time.time()
                 logger.error(
                     'dropping %d hand history record(s) for room %s (hands %s) '
                     'after %d attempts',
@@ -171,10 +213,6 @@ def _write(room_id, records):
 
 
 def _get_store():
-    global _store, _flush_interval
     if _store is None:
-        from django.conf import settings
-
-        _store = hand_store.get_hand_store()
-        _flush_interval = float(getattr(settings, 'HAND_HISTORY_FLUSH_INTERVAL', 1.0))
+        initialize()
     return _store

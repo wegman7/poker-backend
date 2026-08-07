@@ -1,9 +1,30 @@
 import asyncio
+import sys
 import time
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
 
+import poker
 from poker import hand_store, hand_writer
+
+
+def fake_django_conf(**overrides):
+    """A stand-in for django.conf with the hand history settings only.
+
+    The suite runs with no DJANGO_SETTINGS_MODULE, so anything that touches
+    the real settings object raises ImproperlyConfigured.
+    """
+    settings = {
+        'HAND_HISTORY_BACKEND': 'none',
+        'HAND_HISTORY_DIR': None,
+        'HAND_HISTORY_BUCKET': None,
+        'HAND_HISTORY_PREFIX': 'hands/',
+        'HAND_HISTORY_TMP_PREFIX': 'tmp/',
+        'HAND_HISTORY_FLUSH_INTERVAL': '1.0',
+    }
+    settings.update(overrides)
+    return SimpleNamespace(settings=SimpleNamespace(**settings))
 
 
 class RecordingStore(hand_store.HandStore):
@@ -70,6 +91,136 @@ class TestEnqueueWithoutALoop(TestCase):
     def test_shutdown_for_an_unknown_room_is_a_no_op(self):
         hand_writer.configure(RecordingStore(), flush_interval=0)
         hand_writer.shutdown('room-never-seen')
+
+
+class TestStatus(TestCase):
+    """The accessor the health endpoint reads, so views never touch globals."""
+
+    def tearDown(self):
+        hand_writer.reset()
+
+    def test_reports_no_store_before_one_is_installed(self):
+        hand_writer.reset()
+        self.assertEqual(hand_writer.status(), {
+            'store_configured': False,
+            'store': None,
+            'dropped_batches': 0,
+            'last_failure_at': None,
+        })
+
+    def test_reports_the_installed_store_by_class_name(self):
+        hand_writer.configure(RecordingStore(), flush_interval=0)
+        status = hand_writer.status()
+        self.assertTrue(status['store_configured'])
+        self.assertEqual(status['store'], 'RecordingStore')
+
+    def test_a_successful_write_does_not_count_as_a_failure(self):
+        hand_writer.configure(RecordingStore(), flush_interval=0, retry_backoff=(0, 0, 0))
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        self.assertEqual(hand_writer.status()['dropped_batches'], 0)
+        self.assertIsNone(hand_writer.status()['last_failure_at'])
+
+
+class TestInitialize(TestCase):
+    """initialize() is the one place the store is built, so a failure is
+    reportable by whoever called it instead of vanishing into a worker."""
+
+    def tearDown(self):
+        hand_writer.reset()
+
+    def test_installs_the_configured_store_and_flush_interval(self):
+        with patch.dict(sys.modules, {'django.conf': fake_django_conf(
+            HAND_HISTORY_FLUSH_INTERVAL='2.5',
+        )}):
+            store = hand_writer.initialize()
+        self.assertIsInstance(store, hand_store.NullHandStore)
+        self.assertEqual(hand_writer.status()['store'], 'NullHandStore')
+        self.assertEqual(hand_writer._flush_interval, 2.5)
+
+    def test_a_misconfiguration_raises_instead_of_installing_a_store(self):
+        # gcs with no bucket: the deploy typo the health endpoint has to
+        # be able to report.
+        with patch.dict(sys.modules, {'django.conf': fake_django_conf(
+            HAND_HISTORY_BACKEND='gcs',
+        )}):
+            with self.assertRaises(ValueError):
+                hand_writer.initialize()
+        self.assertFalse(hand_writer.status()['store_configured'])
+
+
+class TestAppReady(TestCase):
+    """PokerConfig.ready() builds the store at startup, so a misconfiguration
+    is one CRITICAL on boot rather than an ERROR per batch per room forever."""
+
+    def setUp(self):
+        from poker.apps import PokerConfig
+
+        self.PokerConfig = PokerConfig
+        self.config = PokerConfig('poker', poker)
+        PokerConfig._hand_history_initialized = False
+        self.addCleanup(setattr, PokerConfig, '_hand_history_initialized', False)
+        self.addCleanup(hand_writer.reset)
+
+    def test_a_working_store_is_installed_for_the_health_endpoint(self):
+        with patch.dict(sys.modules, {'django.conf': fake_django_conf()}):
+            self.config.ready()
+        self.assertEqual(hand_writer.status()['store'], 'NullHandStore')
+
+    def test_a_misconfiguration_is_logged_at_critical_and_not_raised(self):
+        with patch.object(
+            hand_writer, 'initialize', side_effect=ValueError('HAND_HISTORY_BUCKET')
+        ):
+            with self.assertLogs('poker.apps', level='CRITICAL') as logs:
+                self.config.ready()   # must not raise: players keep playing
+        self.assertIn('misconfigured', logs.output[0])
+        self.assertFalse(hand_writer.status()['store_configured'])
+
+    def test_the_store_is_built_only_once_per_process(self):
+        # Django can populate the app registry more than once in a process,
+        # and building the gcs store discovers credentials - not something to
+        # repeat on every populate.
+        with patch.object(hand_writer, 'initialize') as mock_initialize:
+            self.config.ready()
+            self.config.ready()
+        mock_initialize.assert_called_once_with()
+
+
+class TestStatusCounters(IsolatedAsyncioTestCase):
+    """The counters move where the batch is actually dropped, in the worker's
+    retry loop - the path production takes."""
+
+    def setUp(self):
+        self.store = RecordingStore(always_fail=True)
+        hand_writer.configure(self.store, flush_interval=0, retry_backoff=(0, 0, 0))
+
+    async def asyncTearDown(self):
+        tasks = list(hand_writer._workers.values())
+        hand_writer.reset()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def test_a_dropped_batch_is_counted_and_timestamped(self):
+        before = time.time()
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        await wait_for(lambda: hand_writer.status()['dropped_batches'] == 1)
+        last_failure_at = hand_writer.status()['last_failure_at']
+        self.assertIsNotNone(last_failure_at)
+        self.assertGreaterEqual(last_failure_at, before)
+        self.assertLessEqual(last_failure_at, time.time())
+
+    async def test_every_dropped_batch_is_counted(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        await wait_for(lambda: hand_writer.status()['dropped_batches'] == 1)
+        hand_writer.enqueue('room-a', {'handNumber': 2})
+        await wait_for(lambda: hand_writer.status()['dropped_batches'] == 2)
+
+    async def test_reset_clears_the_failure_counters(self):
+        hand_writer.enqueue('room-a', {'handNumber': 1})
+        await wait_for(lambda: hand_writer.status()['dropped_batches'] == 1)
+        tasks = list(hand_writer._workers.values())
+        hand_writer.reset()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.assertEqual(hand_writer.status()['dropped_batches'], 0)
+        self.assertIsNone(hand_writer.status()['last_failure_at'])
 
 
 class TestHandWriter(IsolatedAsyncioTestCase):

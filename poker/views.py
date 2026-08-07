@@ -2,6 +2,7 @@ import time
 
 from django.http import JsonResponse
 
+from . import hand_writer
 from .consumers import EngineConsumer, PlayerConsumer
 
 
@@ -18,4 +19,8 @@ def room_health(request, room_id):
         'engine_consumer_count_warning': engine_count > 1,
         'last_state_seconds_ago': (time.time() - last_state_at) if last_state_at is not None else None,
         'player_count': player_count,
+        # Process-wide, not per room: a store misconfiguration is a deploy
+        # problem, and a room that looks healthy in every other respect can
+        # still be persisting none of its hands.
+        'hand_history': hand_writer.status(),
     })
