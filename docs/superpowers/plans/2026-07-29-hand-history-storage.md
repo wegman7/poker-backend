@@ -1424,5 +1424,8 @@ When all five tasks are complete:
 
 - `python -m unittest poker.test_hand_store poker.test_hand_writer poker.test_hand_log -v` passes (58 tests) with no `DJANGO_SETTINGS_MODULE` set.
 - Playing hands in dev produces `hand-histories/{room_id}.jsonl` with exactly one JSON line per hand.
-- `grep -rniE "DB persistence|DB models"` finds nothing outside the historical 2026-07-21 plan.
+- `grep -rniE "DB persistence|DB models"` finds no *live* claim that a database is coming. Remaining
+  hits are all meta-narrative and are expected: this plan quoting the old strings it instructs you to
+  replace, this plan's own verification line, the 2026-07-29 spec's "references to remove" section,
+  and the historical 2026-07-21 plan.
 - The bucket, its lifecycle rules, and the service account binding are documented in `CLAUDE.md` for the operator to apply.

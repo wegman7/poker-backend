@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-21
 **Status:** Approved
-**Scope:** poker-engine (Go) + poker-backend (Django Channels). Frontend chat UI and DB persistence are explicitly out of scope; this design only guarantees they can be added later.
+**Scope:** poker-engine (Go) + poker-backend (Django Channels). Frontend chat UI and durable persistence are explicitly out of scope; this design only guarantees they can be added later. (Persistence has since been added — as an append-only file dump, not a database. See `2026-07-29-hand-history-storage-design.md`.)
 
 ## Motivation
 
