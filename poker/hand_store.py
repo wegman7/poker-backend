@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 # that cannot escape a directory or a GCS prefix.
 _SAFE_ROOM_ID = re.compile(r'^[A-Za-z0-9_-]{1,128}\Z')
 
+NDJSON_CONTENT_TYPE = 'application/x-ndjson'
+
 
 def validate_room_id(room_id):
     """Raise ValueError unless room_id is safe to use as a path component."""
@@ -64,6 +66,18 @@ class GcsHandStore(HandStore):
     hands. On a 412 the cached generation is dropped so the caller's retry
     re-probes.
 
+    Every request is issued through a freshly constructed blob, and the probe
+    gets a blob of its own. That is deliberate: Blob.compose sends the
+    destination blob's accumulated properties as the request's `destination`
+    object resource, and reload() fills those properties with the *previous*
+    generation's full resource - md5Hash, crc32c, size, etag, generation,
+    timeCreated. Composite objects have no MD5, so reusing a reloaded blob as
+    the compose destination sends metadata that describes something the result
+    cannot be. Keeping the destination pristine means only what we set on it
+    (the content type) is ever sent, and it makes both the cached-generation
+    path and the probe path issue the identical request shape - the one the
+    tests model.
+
     client, not_found and precondition_failed exist for tests; production leaves
     them None and the real client is imported lazily here, so dev and test
     environments do not need google-cloud-storage installed.
@@ -88,22 +102,29 @@ class GcsHandStore(HandStore):
     def append(self, room_id, lines):
         validate_room_id(room_id)
         payload = ''.join(lines)
-        main = self._bucket.blob(f'{self._prefix}{room_id}.jsonl')
+        name = f'{self._prefix}{room_id}.jsonl'
         generation = self._generations.get(room_id)
         if generation is None:
-            generation = self._probe_generation(main)
+            # A throwaway blob: reload() leaves it holding the object's whole
+            # resource, and nothing but the generation is wanted from it.
+            generation = self._probe_generation(self._bucket.blob(name))
+        # Pristine, so compose sends only the content type as `destination`.
+        # Setting it here is also what makes the type survive the compose;
+        # an unset content type would be replaced by the compose default.
+        main = self._bucket.blob(name)
+        main.content_type = NDJSON_CONTENT_TYPE
         try:
             if generation is None:
                 main.upload_from_string(
                     payload,
-                    content_type='application/x-ndjson',
+                    content_type=NDJSON_CONTENT_TYPE,
                     if_generation_match=0,
                 )
             else:
                 temp = self._bucket.blob(
                     f'{self._tmp_prefix}{room_id}/{uuid4().hex}.jsonl'
                 )
-                temp.upload_from_string(payload, content_type='application/x-ndjson')
+                temp.upload_from_string(payload, content_type=NDJSON_CONTENT_TYPE)
                 main.compose([main, temp], if_generation_match=generation)
                 self._delete_quietly(temp)
         except self._precondition_failed:

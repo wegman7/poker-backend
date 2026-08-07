@@ -111,35 +111,84 @@ class FakeBucket:
     def data(self, name):
         return self.objects[name]['data']
 
+    def content_type(self, name):
+        return self.objects[name].get('content_type')
+
 
 class FakeBlob:
+    """Stand-in for google.cloud.storage.Blob.
+
+    ``_properties`` mirrors the real blob's: empty on a freshly constructed
+    blob, and replaced by ``reload()`` with the object's *whole* resource. It
+    matters because the real ``compose()`` sends those properties as the
+    request's ``destination``, so a reloaded blob and a pristine one produce
+    materially different compose requests.
+    """
+
     def __init__(self, bucket, name):
         self.bucket = bucket
         self.name = name
         self.generation = None
+        self._properties = {}
+
+    @property
+    def content_type(self):
+        return self._properties.get('contentType')
+
+    @content_type.setter
+    def content_type(self, value):
+        self._properties['contentType'] = value
 
     def upload_from_string(self, data, content_type=None, if_generation_match=None):
         self.bucket.calls.append(('upload', self.name, data, if_generation_match))
         if if_generation_match == 0 and self.name in self.bucket.objects:
             raise FakePreconditionFailed(self.name)
         self.generation = self.bucket.next_generation()
-        self.bucket.objects[self.name] = {'data': data, 'generation': self.generation}
+        self.bucket.objects[self.name] = {
+            'data': data,
+            'generation': self.generation,
+            'content_type': content_type,
+        }
 
     def compose(self, sources, if_generation_match=None):
-        self.bucket.calls.append(
-            ('compose', [source.name for source in sources], if_generation_match)
-        )
+        # The 4th element is what the real client would send as the request's
+        # `destination` object resource.
+        self.bucket.calls.append((
+            'compose',
+            [source.name for source in sources],
+            if_generation_match,
+            dict(self._properties),
+        ))
         current = self.bucket.objects.get(self.name, {}).get('generation')
         if if_generation_match is not None and if_generation_match != current:
             raise FakePreconditionFailed(self.name)
         data = ''.join(self.bucket.data(source.name) for source in sources)
         self.generation = self.bucket.next_generation()
-        self.bucket.objects[self.name] = {'data': data, 'generation': self.generation}
+        # A compose replaces the object's metadata with the destination
+        # resource, so an unset content type is not carried over from the
+        # previous generation.
+        self.bucket.objects[self.name] = {
+            'data': data,
+            'generation': self.generation,
+            'content_type': self._properties.get('contentType'),
+        }
 
     def reload(self):
+        self.bucket.calls.append(('reload', self.name))
         if self.name not in self.bucket.objects:
             raise FakeNotFound(self.name)
-        self.generation = self.bucket.objects[self.name]['generation']
+        stored = self.bucket.objects[self.name]
+        self.generation = stored['generation']
+        self._properties = {
+            'name': self.name,
+            'generation': stored['generation'],
+            'size': str(len(stored['data'])),
+            'md5Hash': 'ZmFrZQ==',
+            'crc32c': 'ZmFr',
+            'etag': f'etag-{stored["generation"]}',
+            'timeCreated': '2026-07-29T00:00:00.000Z',
+            'contentType': stored.get('content_type'),
+        }
 
     def delete(self):
         self.bucket.calls.append(('delete', self.name))
@@ -169,45 +218,97 @@ class TestGcsHandStore(TestCase):
     def ops(self):
         return [call[0] for call in self.bucket.calls]
 
+    def call(self, op, index=0):
+        """The index-th call of the given kind. Indexing self.bucket.calls
+        directly makes every test brittle to the probe being recorded."""
+        return [call for call in self.bucket.calls if call[0] == op][index]
+
     def test_first_append_creates_the_object_without_composing(self):
         self.store.append('room-a', ['{"handNumber":1}\n'])
-        self.assertEqual(self.ops(), ['upload'])
-        self.assertEqual(self.bucket.calls[0][1], 'hands/room-a.jsonl')
-        self.assertEqual(self.bucket.calls[0][3], 0)
+        self.assertEqual(self.ops(), ['reload', 'upload'])
+        self.assertEqual(self.call('upload')[1], 'hands/room-a.jsonl')
+        self.assertEqual(self.call('upload')[3], 0)
         self.assertEqual(self.bucket.data('hands/room-a.jsonl'), '{"handNumber":1}\n')
 
     def test_second_append_composes_onto_the_existing_object(self):
         self.store.append('room-a', ['one\n'])
         self.store.append('room-a', ['two\n'])
-        self.assertEqual(self.ops(), ['upload', 'upload', 'compose', 'delete'])
+        self.assertEqual(
+            self.ops(), ['reload', 'upload', 'upload', 'compose', 'delete']
+        )
         self.assertEqual(self.bucket.data('hands/room-a.jsonl'), 'one\ntwo\n')
 
     def test_compose_sources_are_main_then_temp_and_temp_is_deleted(self):
         self.store.append('room-a', ['one\n'])
         self.store.append('room-a', ['two\n'])
-        temp_name = self.bucket.calls[1][1]
-        compose_call = self.bucket.calls[2]
+        temp_name = self.call('upload', 1)[1]
         self.assertTrue(temp_name.startswith('tmp/room-a/'))
-        self.assertEqual(compose_call[1], ['hands/room-a.jsonl', temp_name])
-        self.assertEqual(self.bucket.calls[3], ('delete', temp_name))
+        self.assertEqual(self.call('compose')[1], ['hands/room-a.jsonl', temp_name])
+        self.assertEqual(self.call('delete'), ('delete', temp_name))
         self.assertNotIn(temp_name, self.bucket.objects)
 
     def test_compose_is_guarded_by_the_destination_generation(self):
         self.store.append('room-a', ['one\n'])
         expected_generation = self.bucket.objects['hands/room-a.jsonl']['generation']
         self.store.append('room-a', ['two\n'])
-        self.assertEqual(self.bucket.calls[2][2], expected_generation)
+        self.assertEqual(self.call('compose')[2], expected_generation)
 
     def test_a_batch_of_lines_is_written_as_one_object(self):
         self.store.append('room-a', ['one\n', 'two\n', 'three\n'])
         self.assertEqual(self.bucket.data('hands/room-a.jsonl'), 'one\ntwo\nthree\n')
-        self.assertEqual(self.ops(), ['upload'])
+        self.assertEqual(self.ops(), ['reload', 'upload'])
 
     def test_an_existing_object_is_discovered_by_probing(self):
         self.bucket.objects['hands/room-a.jsonl'] = {'data': 'old\n', 'generation': 7}
         self.store.append('room-a', ['new\n'])
-        self.assertEqual(self.ops(), ['upload', 'compose', 'delete'])
+        self.assertEqual(self.ops(), ['reload', 'upload', 'compose', 'delete'])
         self.assertEqual(self.bucket.data('hands/room-a.jsonl'), 'old\nnew\n')
+
+    def test_the_second_append_reuses_the_cached_generation_without_reprobing(self):
+        self.store.append('room-a', ['one\n'])
+        self.store.append('room-a', ['two\n'])
+        self.store.append('room-a', ['three\n'])
+        # One probe for the room's lifetime, on the very first append; every
+        # later append is guarded by the generation the previous one returned.
+        self.assertEqual(self.ops().count('reload'), 1)
+        self.assertEqual(self.bucket.data('hands/room-a.jsonl'), 'one\ntwo\nthree\n')
+
+    def test_the_probe_path_composes_onto_a_pristine_destination(self):
+        # The path taken on the first append after a process restart for a room
+        # that already exists - and again after every 412. Probing must not
+        # leave the previous generation's object resource (md5Hash, etag, size,
+        # generation, ...) attached to the blob compose is issued against:
+        # a composite object has no MD5, so that resource describes something
+        # the compose result cannot be.
+        self.bucket.objects['hands/room-a.jsonl'] = {'data': 'old\n', 'generation': 7}
+        self.store.append('room-a', ['new\n'])
+        self.assertEqual(
+            self.call('compose')[3],
+            {'contentType': hand_store.NDJSON_CONTENT_TYPE},
+        )
+
+    def test_the_cached_path_composes_onto_a_pristine_destination(self):
+        self.store.append('room-a', ['one\n'])
+        self.store.append('room-a', ['two\n'])
+        self.assertEqual(
+            self.call('compose')[3],
+            {'contentType': hand_store.NDJSON_CONTENT_TYPE},
+        )
+
+    def test_the_ndjson_content_type_survives_a_compose(self):
+        self.store.append('room-a', ['one\n'])
+        self.assertEqual(
+            self.bucket.content_type('hands/room-a.jsonl'),
+            hand_store.NDJSON_CONTENT_TYPE,
+        )
+        # A compose replaces the object's metadata with the destination
+        # resource it was given, so the type has to be set on that destination
+        # or the composite silently reverts to the compose default.
+        self.store.append('room-a', ['two\n'])
+        self.assertEqual(
+            self.bucket.content_type('hands/room-a.jsonl'),
+            hand_store.NDJSON_CONTENT_TYPE,
+        )
 
     def test_a_generation_mismatch_raises_and_clears_the_cached_generation(self):
         self.store.append('room-a', ['one\n'])
