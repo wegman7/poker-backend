@@ -24,3 +24,4 @@ backlog:
   this area (lost record -> reordered writes -> leaked worker), so the next edit
   there deserves the guardrail
 - add endpoint to view hand histories
+- make sure we test edge cases (multi way split pot situations) extremely thoroughly (should this be done on engine?)
