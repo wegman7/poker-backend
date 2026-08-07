@@ -1,0 +1,14 @@
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "action": {"type": "Delete"},
+        "condition": {"age": 7, "matchesPrefix": ["hands/"]}
+      },
+      {
+        "action": {"type": "Delete"},
+        "condition": {"age": 1, "matchesPrefix": ["tmp/"]}
+      }
+    ]
+  }
+}

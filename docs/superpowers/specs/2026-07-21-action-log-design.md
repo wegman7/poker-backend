@@ -62,7 +62,7 @@ consumers.py stays thin; this module owns bookkeeping:
   - `current(room)` — the accumulated list for the in-progress hand.
   - `clear(room)` — drop the room's entry entirely.
 - On appending a `handEnd` event, the store packages the completed hand (its full ordered event list — self-containing hand number, seats, blinds) and calls `persist_hand(room, hand_record)`, then resets the current-hand list.
-- `persist_hand(room, hand_record)` — **no-op stub with a log line. This is the single hook where DB persistence gets added later** (as a Django model write via `database_sync_to_async` or a task).
+- `persist_hand(room, hand_record)` — **the hook where a completed hand leaves the accumulator.** Implemented in `2026-07-29-hand-history-storage-design.md` as a hand-off to `hand_writer`, which appends the hand to a per-room NDJSON file in Cloud Storage.
 
 ### consumers.py changes
 
@@ -87,6 +87,6 @@ Each gamestate broadcast gains `actionLog`: the full ordered event list for the 
 
 ## Out of scope (future enhancements)
 
-- DB models and actual persistence (`persist_hand` stub is the hook).
+- Durable persistence (`persist_hand` is the hook; see `2026-07-29-hand-history-storage-design.md`).
 - Frontend chat component.
 - Hand-history file exporter (OHH JSON / PokerStars text) — buildable from the stored records.

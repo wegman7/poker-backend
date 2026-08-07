@@ -172,7 +172,7 @@ LOGGING = {
             "propagate": False,
         },
         # root stays WARNING to keep third-party chatter down, so our own
-        # INFO logs (hand_log.persist_hand, consumer connect/disconnect)
+        # INFO logs (hand history writes, consumer connect/disconnect)
         # need an explicit entry to reach the console
         "poker": {
             "handlers": ["console"],

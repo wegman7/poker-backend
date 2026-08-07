@@ -47,6 +47,9 @@ Configured via `.env` (dev) and `.env.prod` (prod). Key vars:
 | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Auth0 app credentials |
 | `ENGINE_URL` | Poker engine HTTP base URL |
 | `REDIS_URL` | Redis hostname |
+| `HAND_HISTORY_BACKEND` | `local`, `gcs`, or `none` (dev default `local`, prod default `gcs`) |
+| `HAND_HISTORY_DIR` | Local dump directory (dev) |
+| `HAND_HISTORY_BUCKET` | GCS bucket for hand histories (prod) |
 | `PASSWORD` | Test user password for integration tests |
 
 Settings module selected via `DJANGO_SETTINGS_MODULE`:
@@ -64,6 +67,19 @@ docker run -d --env-file .env.prod -p 8000:8000 gcr.io/poker-451119/backend:v1
 ```
 
 Deploys to Google Cloud Run. ASGI server: Daphne on port 8000.
+
+### Hand history bucket (one-time setup)
+
+```bash
+gcloud storage buckets create gs://poker-hand-histories --location=us-central1 --project=poker-451119
+gcloud storage buckets update gs://poker-hand-histories --lifecycle-file=docs/hand-history-lifecycle.json
+gcloud storage buckets add-iam-policy-binding gs://poker-hand-histories \
+  --member=serviceAccount:<cloud-run-service-account> \
+  --role=roles/storage.objectAdmin
+```
+
+`objectAdmin` is the minimum that covers all three operations an append needs: create, compose, and
+delete. Set `HAND_HISTORY_BUCKET=poker-hand-histories` in `.env.prod`.
 
 ## Key Patterns
 
@@ -134,6 +150,23 @@ On any violation the runner logs the rule, details, and last 5 state snapshots, 
 - Implement engine timeout/cleanup logic
 - Add automatic token refresh
 
-## Database
+## Storage
 
-No ORM models defined. Game state is entirely in-memory (GameEngine) + Redis. SQLite is configured in dev but unused.
+No ORM models are defined. Live game state is entirely in-memory (GameEngine) + Redis. SQLite is
+configured because Django's admin, auth and sessions apps require a database, but the poker app
+writes nothing to it.
+
+**Hand histories** are dumped to append-only NDJSON files, one per room, one line per completed
+hand — see [docs/superpowers/specs/2026-07-29-hand-history-storage-design.md](docs/superpowers/specs/2026-07-29-hand-history-storage-design.md).
+`poker/hand_log.py` accumulates engine events and hands each finished hand to `poker/hand_writer.py`,
+which batches them onto a background task and writes through `poker/hand_store.py`.
+
+| Env | Backend | Destination |
+|---|---|---|
+| dev | `local` | `hand-histories/{room_id}.jsonl` (gitignored) |
+| prod | `gcs` | `gs://$HAND_HISTORY_BUCKET/hands/{room_id}.jsonl` |
+
+Cloud Storage objects are immutable, so `GcsHandStore` emulates an append with the compose API
+(upload a temp object, compose `[main, temp]` onto `main`, delete the temp). Retention is a bucket
+lifecycle rule — 7 days on `hands/`, 1 day on `tmp/` — so a room's history disappears a week after
+its last hand. Records are stored **unmasked**; hiding hole cards is the job of whatever reads them.

@@ -1,9 +1,6 @@
-import logging
 from uuid import uuid4
 
 from poker import hand_writer
-
-logger = logging.getLogger(__name__)
 
 # room_name -> ordered list of engine event dicts for the hand in progress
 _current_hands = {}
