@@ -245,7 +245,7 @@ bucket — create, compose, and delete are all required. `hand-histories/` is ad
 | `tmp.delete()` fails | Logged and swallowed; `tmp/` lifecycle rule sweeps it |
 | Anything thrown inside `enqueue` | Caught and logged; never reaches `send_state` |
 | No running event loop | Synchronous write-through to the store |
-| `HAND_HISTORY_BACKEND=none` | `enqueue` returns immediately; no queue, no worker |
+| `HAND_HISTORY_BACKEND=none` | Records take the normal path into `NullHandStore`, which discards them |
 
 ## Testing
 
@@ -265,7 +265,12 @@ bucket — create, compose, and delete are all required. `hand-histories/` is ad
   leaves the worker alive for the next hand.
 - With no running event loop, `enqueue` writes through synchronously.
 - The sentinel drains remaining records and exits the worker.
-- `HAND_HISTORY_BACKEND=none` performs no writes.
+
+`HAND_HISTORY_BACKEND=none` is covered by `test_hand_store.py`'s `build_store` tests rather than
+here. `enqueue` deliberately does not short-circuit on that backend: checking it would force
+`get_hand_store()` onto the event loop, and for the `gcs` backend that constructs a
+`storage.Client()` with credential discovery — exactly the blocking work the `to_thread` hop exists
+to keep off the loop. The records travel the normal path and `NullHandStore` discards them.
 
 `poker/test_hand_log.py`
 
